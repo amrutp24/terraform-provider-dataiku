@@ -62,6 +62,25 @@ resource "dataiku_project_permissions" "analytics" {
 }
 ```
 
+## Provisioning the instance itself
+
+This provider configures a DSS instance that already exists. Creating the
+instance is a separate layer, and a separate tool: Terraform providers do not
+provision generic compute.
+
+[`modules/dss-bootstrap`](modules/dss-bootstrap) covers that half. It renders
+the DSS install script and creates nothing itself, so the same output works as
+EC2 user-data, a GCE startup script, Azure custom-data, a `remote-exec` payload
+against a host you already own, or a Packer provisioner. Nothing in it is tied
+to a cloud.
+
+[`examples/provisioning/docker`](examples/provisioning/docker) shows both
+layers end to end.
+
+Note that the two layers need **separate applies**: Terraform builds a
+provider's configuration during planning, so the instance has to exist and have
+an API key before the plan that configures it.
+
 ## Authentication
 
 The provider authenticates with a DSS API key, sent as the HTTP Basic username
