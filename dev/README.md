@@ -24,24 +24,47 @@ Then open <http://localhost:10000> and sign in as **admin / admin**.
 
 ## You need a licence that includes the public API
 
-**The Free / Community Edition does not license the public REST API.** On first
-launch DSS asks you to register, which installs a `COMMUNITY` licence, and the
-API key screen then reports:
+This provider talks to nothing but the DSS public REST API, and **the Free
+Edition does not licence it on its own**. The API key screen reports:
 
 > DSS API is not available with your Free Edition license
 
-This provider talks to nothing but that API, so a Community-licensed instance
-cannot be used to develop or test against. To use a local instance you need a
-licence that includes the API — a Dataiku
-[trial](https://www.dataiku.com/product/get-started), an academic licence, or a
-commercial one. Install it with:
+A Free Edition licence does normally come with a time-limited **Enterprise
+trial**, and the API works for as long as that trial is running. Check where
+you stand:
+
+```bash
+curl -su "$DATAIKU_API_KEY:" http://localhost:10000/public/api/admin/licensing/status \
+  | python -c "import json,sys; c=json.load(sys.stdin)['base']['licenseContent']; \
+      print(c['licenseKind'], c['properties'].get('community.eeTrialUntil','no EE trial'))"
+```
+
+A `community.eeTrialUntil` date in the future means the API is available until
+then. Once it passes, expect API access to stop, and you will need a Dataiku
+[trial](https://www.dataiku.com/product/get-started), academic, or commercial
+licence. Install one with:
 
 ```bash
 docker exec dataiku-dss-dev /home/dataiku/dss/bin/dsscli set-license --file /path/inside/container/license.json
 ```
 
-If you have no such licence, skip the container entirely: the test suite runs
-against an in-process fake DSS and needs no instance at all.
+If you have no licence with API access, skip the container entirely: the test
+suite runs against an in-process fake DSS and needs no instance at all.
+
+## Licence profiles differ per instance
+
+`dataiku_user.user_profile` only accepts profiles your licence grants. A trial
+licences `DESIGNER` and `NONE` and nothing else, so `FULL_DESIGNER` or `READER`
+will fail there. List what yours grants:
+
+```bash
+curl -su "$DATAIKU_API_KEY:" http://localhost:10000/public/api/admin/licensing/status \
+  | python -c "import json,sys; print(list(json.load(sys.stdin)['limits']['licensedProfiles']))"
+```
+
+The acceptance tests read `DATAIKU_TEST_USER_PROFILE` and
+`DATAIKU_TEST_USER_PROFILE_ALT` so you can point them at profiles your instance
+actually has; they default to `DESIGNER` and `NONE`.
 
 ## Get an API key
 
