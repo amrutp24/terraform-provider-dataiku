@@ -6,6 +6,8 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-05
+
 ### Added
 
 - Initial provider, built on terraform-plugin-framework and speaking protocol 6.
