@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Deliberately not go-version-file. The go directive in go.mod is the
           # minimum a consumer needs, whereas standard-library vulnerabilities
