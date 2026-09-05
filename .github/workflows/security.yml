@@ -18,7 +18,7 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Scanning history, not just the diff, is the point: a secret that was
           # committed and later removed is still in the repository.
@@ -45,7 +45,7 @@ jobs:
     name: Known vulnerabilities
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           # Deliberately not go-version-file. The go directive in go.mod is the
@@ -77,7 +77,7 @@ jobs:
       actions: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v3
         with:
           languages: go
