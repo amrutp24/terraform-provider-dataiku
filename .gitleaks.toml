@@ -1,0 +1,33 @@
+# Gitleaks configuration.
+#
+# The default rules are kept; this only teaches it about DSS API keys, which it
+# would not otherwise recognise, and silences the obviously-fake credentials in
+# the test suite.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "dataiku-api-key"
+description = "Dataiku DSS API key"
+# DSS personal and global API keys are prefixed and base62.
+regex = '''dkuaps-[A-Za-z0-9]{20,}'''
+tags = ["dataiku", "apikey"]
+
+[allowlist]
+description = "Test fixtures and documentation examples"
+paths = [
+  # The acceptance tests set passwords on throwaway objects on a throwaway
+  # instance. They are meant to be readable.
+  '''internal/provider/acceptance_test\.go''',
+  '''internal/provider/fakedss_test\.go''',
+  '''internal/dataiku/client_test\.go''',
+]
+regexes = [
+  # Placeholders in documentation and examples.
+  '''super-secret''',
+  '''initial-secret''',
+  '''rotated-secret''',
+  '''acceptance-test-key''',
+  '''test-key''',
+]

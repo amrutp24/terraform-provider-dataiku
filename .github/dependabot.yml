@@ -1,0 +1,18 @@
+version: 2
+
+updates:
+  # The Terraform plugin libraries move fast and carry the protocol
+  # implementation, so keeping them current matters more than usual.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      terraform-plugin:
+        patterns:
+          - "github.com/hashicorp/terraform-plugin-*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
