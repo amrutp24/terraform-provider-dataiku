@@ -151,6 +151,8 @@ func TestExpectedResourcesAreRegistered(t *testing.T) {
 		"dataiku_user",
 		"dataiku_group",
 		"dataiku_connection",
+		"dataiku_code_env",
+		"dataiku_scenario",
 	}
 	for _, name := range want {
 		if !got[name] {
@@ -170,6 +172,7 @@ func TestExpectedResourcesAreRegistered(t *testing.T) {
 		"dataiku_user",
 		"dataiku_group",
 		"dataiku_connection",
+		"dataiku_project_folder",
 	} {
 		if !gotDS[name] {
 			t.Errorf("data source %q is not registered", name)

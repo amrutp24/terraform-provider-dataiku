@@ -812,3 +812,176 @@ data "dataiku_project_folder" "test" {
 		},
 	})
 }
+
+func TestAccScenario(t *testing.T) {
+	testAccSetup(t)
+	key := randProjectKey(t)
+
+	project := fmt.Sprintf(`
+resource "dataiku_project" "test" {
+  project_key = %[1]q
+  name        = "Scenario host"
+  owner       = "admin"
+}
+`, key)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: project + `
+resource "dataiku_scenario" "test" {
+  project_key = dataiku_project.test.project_key
+  name        = "Nightly build"
+
+  triggers_json = jsonencode([{
+    id     = "nightly"
+    name   = "nightly"
+    type   = "temporal"
+    active = true
+    params = {
+      repeatFrequency = 1
+      hour            = 3
+      minute          = 0
+      timezone        = "SERVER"
+    }
+  }])
+
+  steps_json = jsonencode([{
+    id   = "build"
+    name = "Build"
+    type = "build_flowitem"
+    params = {
+      builds = []
+    }
+  }])
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					// The id is derived from the name, not random.
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "scenario_id", "Nightly_build"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "id", key+"/Nightly_build"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "name", "Nightly build"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "type", "step_based"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "active", "false"),
+				),
+			},
+			{
+				// Renaming and arming it must not replace the scenario, so the
+				// id has to survive.
+				Config: project + `
+resource "dataiku_scenario" "test" {
+  project_key = dataiku_project.test.project_key
+  name        = "Nightly build (renamed)"
+  active      = true
+  tags        = ["managed-by-terraform"]
+
+  triggers_json = jsonencode([{
+    id     = "nightly"
+    name   = "nightly"
+    type   = "temporal"
+    active = true
+    params = {
+      repeatFrequency = 1
+      hour            = 4
+      minute          = 30
+      timezone        = "SERVER"
+    }
+  }])
+
+  steps_json = jsonencode([{
+    id   = "build"
+    name = "Build"
+    type = "build_flowitem"
+    params = {
+      builds = []
+    }
+  }])
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "scenario_id", "Nightly_build"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "name", "Nightly build (renamed)"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "active", "true"),
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "tags.0", "managed-by-terraform"),
+				),
+			},
+			{
+				// The JSON attributes are written and not read back, so a
+				// second plan on the same configuration must be empty rather
+				// than diffing against what DSS rewrote them to.
+				Config:   project + testAccScenarioRenamedConfig,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+// Kept out of the step above so the PlanOnly step is byte-identical to the
+// configuration that was applied.
+const testAccScenarioRenamedConfig = `
+resource "dataiku_scenario" "test" {
+  project_key = dataiku_project.test.project_key
+  name        = "Nightly build (renamed)"
+  active      = true
+  tags        = ["managed-by-terraform"]
+
+  triggers_json = jsonencode([{
+    id     = "nightly"
+    name   = "nightly"
+    type   = "temporal"
+    active = true
+    params = {
+      repeatFrequency = 1
+      hour            = 4
+      minute          = 30
+      timezone        = "SERVER"
+    }
+  }])
+
+  steps_json = jsonencode([{
+    id   = "build"
+    name = "Build"
+    type = "build_flowitem"
+    params = {
+      builds = []
+    }
+  }])
+}
+`
+
+func TestAccScenarioCustomPython(t *testing.T) {
+	if testAccSetup(t) != nil {
+		t.Skip("custom_python scenarios are only exercised against a real instance")
+	}
+	key := randProjectKey(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_project" "test" {
+  project_key = %[1]q
+  name        = "Scenario host"
+  owner       = "admin"
+}
+
+resource "dataiku_scenario" "test" {
+  project_key = dataiku_project.test.project_key
+  name        = "Scripted"
+  type        = "custom_python"
+
+  script = "scenario.set_scenario_output('ok')\n"
+}
+`, key),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "type", "custom_python"),
+					// Unlike the JSON attributes, the script is stored verbatim
+					// and does come back.
+					resource.TestCheckResourceAttr("dataiku_scenario.test", "script", "scenario.set_scenario_output('ok')\n"),
+				),
+			},
+		},
+	})
+}

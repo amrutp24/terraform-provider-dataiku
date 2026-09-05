@@ -87,8 +87,12 @@ func (r *connectionResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				MarkdownDescription: "Description of the connection.",
 			},
 			"params_json": schema.StringAttribute{
-				Optional:   true,
-				Sensitive:  true,
+				Optional:  true,
+				Sensitive: true,
+				// Computed as well as Optional so that omitting it is allowed:
+				// otherwise the redacted parameters adopted on import would come
+				// back as an inconsistent result after apply.
+				Computed:   true,
 				CustomType: jsontypes.NormalizedType{},
 				PlanModifiers: []planmodifier.String{
 					suppressEquivalentJSONPlanModifier(),

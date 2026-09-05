@@ -11,8 +11,8 @@ All notable changes to this provider are documented here. The format follows
 - Initial provider, built on terraform-plugin-framework and speaking protocol 6.
 - Resources: `dataiku_project`, `dataiku_project_permissions`,
   `dataiku_project_variables`, `dataiku_project_folder`, `dataiku_user`,
-  `dataiku_group`, `dataiku_connection`, `dataiku_code_env`. All support
-  `terraform import`.
+  `dataiku_group`, `dataiku_connection`, `dataiku_code_env`,
+  `dataiku_scenario`. All support `terraform import`.
 - Data sources: `dataiku_project`, `dataiku_projects`, `dataiku_project_folder`,
   `dataiku_user`, `dataiku_group`, `dataiku_connection`.
 - `modules/dss-bootstrap`, which renders the DSS install script for any Linux

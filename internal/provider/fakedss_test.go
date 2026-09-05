@@ -23,6 +23,8 @@ type fakeDSS struct {
 	users       map[string]map[string]any
 	connections map[string]map[string]any
 	codeEnvs    map[string]map[string]any
+	scenarios   map[string]map[string]any
+	payloads    map[string]string
 
 	// unmodelledFieldDropped records whether an update ever wrote back a
 	// document that lost a field the provider does not model.
@@ -40,6 +42,8 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 		users:       map[string]map[string]any{},
 		connections: map[string]map[string]any{},
 		codeEnvs:    map[string]map[string]any{},
+		scenarios:   map[string]map[string]any{},
+		payloads:    map[string]string{},
 	}
 
 	server := httptest.NewServer(f.handler())
@@ -157,6 +161,8 @@ func (f *fakeDSS) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		f.variables[key] = body
 		w.WriteHeader(http.StatusOK)
+	case strings.HasPrefix(sub, "scenarios"):
+		f.handleScenarios(w, r, key, strings.TrimPrefix(strings.TrimPrefix(sub, "scenarios"), "/"))
 	case sub == "" && r.Method == http.MethodDelete:
 		delete(f.projects, key)
 		delete(f.permissions, key)
@@ -494,6 +500,111 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		delete(f.codeEnvs, key)
 		writeJSON(w, map[string]any{"messages": map[string]any{"error": false}})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "bad method")
+	}
+}
+
+// scenarioIDFromName mirrors how DSS derives a scenario id: the name with
+// anything outside [A-Za-z0-9_] replaced.
+func scenarioIDFromName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+// handleScenarios is called with the caller already holding f.mu.
+func (f *fakeDSS) handleScenarios(w http.ResponseWriter, r *http.Request, projectKey, rest string) {
+	id, sub := splitFirst(strings.TrimSuffix(rest, "/"))
+	scenarioKey := projectKey + "/" + id
+
+	if id == "" {
+		switch r.Method {
+		case http.MethodPost:
+			var body map[string]any
+			if !decodeBody(w, r, &body) {
+				return
+			}
+			name, _ := body["name"].(string)
+			newID := scenarioIDFromName(name)
+			scenario := map[string]any{
+				"projectKey": projectKey,
+				"id":         newID,
+				"name":       name,
+				"type":       body["type"],
+				"active":     false,
+				"tags":       []any{},
+				"triggers":   []any{},
+				"reporters":  []any{},
+				"params":     map[string]any{"steps": []any{}},
+				// A field the provider does not model, to prove updates
+				// preserve it.
+				"checklists": map[string]any{"checklists": []any{}},
+			}
+			f.scenarios[projectKey+"/"+newID] = scenario
+			writeJSON(w, map[string]any{"id": newID})
+		case http.MethodGet:
+			out := []any{}
+			for k, s := range f.scenarios {
+				if strings.HasPrefix(k, projectKey+"/") {
+					out = append(out, s)
+				}
+			}
+			writeJSON(w, out)
+		default:
+			writeErr(w, http.StatusMethodNotAllowed, "bad method")
+		}
+		return
+	}
+
+	scenario, ok := f.scenarios[scenarioKey]
+	if !ok {
+		writeErr(w, http.StatusNotFound, "No such scenario: "+id)
+		return
+	}
+
+	if sub == "payload" {
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, map[string]any{"script": f.payloads[scenarioKey]})
+		case http.MethodPut:
+			var body map[string]any
+			if !decodeBody(w, r, &body) {
+				return
+			}
+			script, _ := body["script"].(string)
+			f.payloads[scenarioKey] = script
+			w.WriteHeader(http.StatusOK)
+		default:
+			writeErr(w, http.StatusMethodNotAllowed, "bad method")
+		}
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, scenario)
+	case http.MethodPut:
+		var body map[string]any
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		if _, ok := body["checklists"]; !ok {
+			f.unmodelledFieldDropped = true
+		}
+		f.scenarios[scenarioKey] = body
+		w.WriteHeader(http.StatusOK)
+	case http.MethodDelete:
+		delete(f.scenarios, scenarioKey)
+		delete(f.payloads, scenarioKey)
+		w.WriteHeader(http.StatusOK)
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "bad method")
 	}

@@ -19,6 +19,7 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 | `dataiku_connection` | `dataiku_project_folder` |
 | `dataiku_code_env` | |
 | `dataiku_project_folder` | |
+| `dataiku_scenario` | |
 
 Every resource supports `terraform import`.
 
