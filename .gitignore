@@ -29,3 +29,9 @@ vendor/
 .vscode/
 *.swp
 .DS_Store
+
+# Terraform working dirs inside examples
+examples/**/.terraform/
+examples/**/.terraform.lock.hcl
+modules/**/.terraform/
+modules/**/.terraform.lock.hcl

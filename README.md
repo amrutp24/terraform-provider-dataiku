@@ -83,8 +83,9 @@ EC2 user-data, a GCE startup script, Azure custom-data, a `remote-exec` payload
 against a host you already own, or a Packer provisioner. Nothing in it is tied
 to a cloud.
 
-[`examples/provisioning/docker`](examples/provisioning/docker) shows both
-layers end to end.
+[`examples/provisioning`](examples/provisioning) has four root configurations
+you can apply directly — Docker, AWS, GCP and Azure. Each stands up a running
+DSS; the Docker one also shows the configuration layer on top.
 
 Note that the two layers need **separate applies**: Terraform builds a
 provider's configuration during planning, so the instance has to exist and have

@@ -6,6 +6,14 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Root configurations under `examples/provisioning` that stand up DSS on AWS,
+  GCP and Azure, alongside the existing Docker one. Each is applied directly
+  rather than wired up as a module, and all three install DSS through
+  `modules/dss-bootstrap` so the install script has one copy rather than
+  three. `allowed_cidr_blocks` has no default and refuses `0.0.0.0/0`.
+
 ## [0.2.0] - 2026-09-05
 
 ### Added
