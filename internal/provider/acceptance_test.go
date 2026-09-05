@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -44,25 +45,39 @@ func testAccSetup(t *testing.T) *fakeDSS {
 	return fake
 }
 
+// Names are randomised per run so the tests never collide with objects DSS
+// ships by default (the "readers" and "data_team" groups, for one) or with
+// leftovers from an earlier run that failed before its cleanup.
+func randProjectKey(t *testing.T) string {
+	t.Helper()
+	return "TFACC" + strings.ToUpper(acctest.RandStringFromCharSet(8, acctest.CharSetAlpha))
+}
+
+func randName(t *testing.T, kind string) string {
+	t.Helper()
+	return "tfacc_" + kind + "_" + strings.ToLower(acctest.RandStringFromCharSet(8, acctest.CharSetAlpha))
+}
+
 func TestAccProject(t *testing.T) {
 	fake := testAccSetup(t)
+	key := randProjectKey(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "ACCTEST"
+  project_key = %[1]q
   name        = "Acceptance test"
   owner       = "admin"
   short_desc  = "first"
   tags        = ["a", "b"]
 }
-`,
+`, key),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("dataiku_project.test", "id", "ACCTEST"),
-					resource.TestCheckResourceAttr("dataiku_project.test", "project_key", "ACCTEST"),
+					resource.TestCheckResourceAttr("dataiku_project.test", "id", key),
+					resource.TestCheckResourceAttr("dataiku_project.test", "project_key", key),
 					resource.TestCheckResourceAttr("dataiku_project.test", "name", "Acceptance test"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "owner", "admin"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "short_desc", "first"),
@@ -75,16 +90,16 @@ resource "dataiku_project" "test" {
 			},
 			{
 				// An in-place update of every mutable field.
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "ACCTEST"
+  project_key = %[1]q
   name        = "Renamed"
   owner       = "admin"
   short_desc  = "second"
   description = "A longer description"
   tags        = ["c"]
 }
-`,
+`, key),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_project.test", "name", "Renamed"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "short_desc", "second"),
@@ -96,7 +111,7 @@ resource "dataiku_project" "test" {
 			{
 				ResourceName:      "dataiku_project.test",
 				ImportState:       true,
-				ImportStateId:     "ACCTEST",
+				ImportStateId:     key,
 				ImportStateVerify: true,
 				// project_folder_id is create-only and never reported by DSS.
 				ImportStateVerifyIgnore: []string{
@@ -122,29 +137,31 @@ resource "dataiku_project" "test" {
 
 func TestAccProjectRequiresReplaceOnKeyChange(t *testing.T) {
 	testAccSetup(t)
+	first := randProjectKey(t)
+	second := randProjectKey(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "FIRST"
+  project_key = %[1]q
   name        = "First"
   owner       = "admin"
 }
-`,
-				Check: resource.TestCheckResourceAttr("dataiku_project.test", "id", "FIRST"),
+`, first),
+				Check: resource.TestCheckResourceAttr("dataiku_project.test", "id", first),
 			},
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "SECOND"
+  project_key = %[1]q
   name        = "First"
   owner       = "admin"
 }
-`,
-				Check: resource.TestCheckResourceAttr("dataiku_project.test", "id", "SECOND"),
+`, second),
+				Check: resource.TestCheckResourceAttr("dataiku_project.test", "id", second),
 			},
 		},
 	})
@@ -172,33 +189,36 @@ resource "dataiku_project" "test" {
 
 func TestAccGroup(t *testing.T) {
 	fake := testAccSetup(t)
+	name := randName(t, "grp")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_group" "test" {
-  name        = "data_scientists"
+  name        = %[1]q
   description = "before"
 
   permissions = {
     mayCreateProjects = true
   }
 }
-`,
+`, name),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("dataiku_group.test", "id", "data_scientists"),
+					resource.TestCheckResourceAttr("dataiku_group.test", "id", name),
 					resource.TestCheckResourceAttr("dataiku_group.test", "description", "before"),
 					resource.TestCheckResourceAttr("dataiku_group.test", "source_type", "LOCAL"),
 					resource.TestCheckResourceAttr("dataiku_group.test", "admin", "false"),
 					resource.TestCheckResourceAttr("dataiku_group.test", "permissions.mayCreateProjects", "true"),
+					// DSS returns this as an array, not a string.
+					resource.TestCheckResourceAttr("dataiku_group.test", "ldap_group_names.#", "0"),
 				),
 			},
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_group" "test" {
-  name        = "data_scientists"
+  name        = %[1]q
   description = "after"
   admin       = true
 
@@ -206,7 +226,7 @@ resource "dataiku_group" "test" {
     mayCreateProjects = false
   }
 }
-`,
+`, name),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_group.test", "description", "after"),
 					resource.TestCheckResourceAttr("dataiku_group.test", "admin", "true"),
@@ -224,24 +244,25 @@ resource "dataiku_group" "test" {
 
 func TestAccUser(t *testing.T) {
 	fake := testAccSetup(t)
+	login := randName(t, "usr")
+	group := randName(t, "grp")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_user" "test" {
-  login        = "jsmith"
+  login        = %[1]q
   display_name = "J. Smith"
-  email        = "jsmith@example.com"
+  email        = "%[1]s@example.com"
   user_profile = "FULL_DESIGNER"
   password     = "initial-secret"
 }
-`,
+`, login),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("dataiku_user.test", "id", "jsmith"),
+					resource.TestCheckResourceAttr("dataiku_user.test", "id", login),
 					resource.TestCheckResourceAttr("dataiku_user.test", "display_name", "J. Smith"),
-					resource.TestCheckResourceAttr("dataiku_user.test", "email", "jsmith@example.com"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "user_profile", "FULL_DESIGNER"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "source_type", "LOCAL"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "enabled", "true"),
@@ -249,13 +270,13 @@ resource "dataiku_user" "test" {
 				),
 			},
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_group" "team" {
-  name = "team"
+  name = %[2]q
 }
 
 resource "dataiku_user" "test" {
-  login        = "jsmith"
+  login        = %[1]q
   display_name = "Jane Smith"
   email        = "jane@example.com"
   user_profile = "DATA_DESIGNER"
@@ -263,19 +284,19 @@ resource "dataiku_user" "test" {
   enabled      = false
   groups       = [dataiku_group.team.name]
 }
-`,
+`, login, group),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_user.test", "display_name", "Jane Smith"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "user_profile", "DATA_DESIGNER"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "enabled", "false"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "groups.#", "1"),
-					resource.TestCheckResourceAttr("dataiku_user.test", "groups.0", "team"),
+					resource.TestCheckResourceAttr("dataiku_user.test", "groups.0", group),
 				),
 			},
 			{
 				ResourceName:      "dataiku_user.test",
 				ImportState:       true,
-				ImportStateId:     "jsmith",
+				ImportStateId:     login,
 				ImportStateVerify: true,
 				// DSS never returns the password.
 				ImportStateVerifyIgnore: []string{"password"},
@@ -290,14 +311,16 @@ resource "dataiku_user" "test" {
 
 func TestAccConnection(t *testing.T) {
 	fake := testAccSetup(t)
+	name := randName(t, "conn")
+	group := randName(t, "grp")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_connection" "test" {
-  name        = "warehouse"
+  name        = %[1]q
   type        = "PostgreSQL"
   description = "before"
 
@@ -307,9 +330,9 @@ resource "dataiku_connection" "test" {
     password = "super-secret"
   })
 }
-`,
+`, name),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("dataiku_connection.test", "id", "warehouse"),
+					resource.TestCheckResourceAttr("dataiku_connection.test", "id", name),
 					resource.TestCheckResourceAttr("dataiku_connection.test", "type", "PostgreSQL"),
 					resource.TestCheckResourceAttr("dataiku_connection.test", "usable_by", "ALL"),
 					resource.TestCheckResourceAttr("dataiku_connection.test", "allowed_groups.#", "0"),
@@ -317,7 +340,7 @@ resource "dataiku_connection" "test" {
 						if fake == nil {
 							return nil
 						}
-						if got := fake.storedConnectionPassword("warehouse"); got != "super-secret" {
+						if got := fake.storedConnectionPassword(name); got != "super-secret" {
 							return fmt.Errorf("stored password = %q, want super-secret", got)
 						}
 						return nil
@@ -325,15 +348,15 @@ resource "dataiku_connection" "test" {
 				),
 			},
 			{
-				// Change only the description. The redacted password DSS
-				// returns must not be written back over the real one.
-				Config: `
+				// Change only the description and access control. The redacted
+				// password DSS returns must not be written back over the real one.
+				Config: fmt.Sprintf(`
 resource "dataiku_group" "readers" {
-  name = "readers"
+  name = %[2]q
 }
 
 resource "dataiku_connection" "test" {
-  name        = "warehouse"
+  name        = %[1]q
   type        = "PostgreSQL"
   description = "after"
 
@@ -346,16 +369,16 @@ resource "dataiku_connection" "test" {
   usable_by      = "ALLOWED"
   allowed_groups = [dataiku_group.readers.name]
 }
-`,
+`, name, group),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_connection.test", "description", "after"),
 					resource.TestCheckResourceAttr("dataiku_connection.test", "usable_by", "ALLOWED"),
-					resource.TestCheckResourceAttr("dataiku_connection.test", "allowed_groups.0", "readers"),
+					resource.TestCheckResourceAttr("dataiku_connection.test", "allowed_groups.0", group),
 					func(_ *terraform.State) error {
 						if fake == nil {
 							return nil
 						}
-						if got := fake.storedConnectionPassword("warehouse"); got != "super-secret" {
+						if got := fake.storedConnectionPassword(name); got != "super-secret" {
 							return fmt.Errorf("the update destroyed the stored password: got %q", got)
 						}
 						return nil
@@ -368,77 +391,80 @@ resource "dataiku_connection" "test" {
 
 func TestAccProjectPermissions(t *testing.T) {
 	testAccSetup(t)
+	key := randProjectKey(t)
+	groupA := randName(t, "grp")
+	groupB := randName(t, "grp")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "PERMS"
+  project_key = %[1]q
   name        = "Perms"
   owner       = "admin"
 }
 
-resource "dataiku_group" "ds" {
-  name = "ds"
+resource "dataiku_group" "a" {
+  name = %[2]q
 }
 
 resource "dataiku_project_permissions" "test" {
   project_key = dataiku_project.test.project_key
 
   permission {
-    group                 = dataiku_group.ds.name
+    group                 = dataiku_group.a.name
     read_project_content  = true
     write_project_content = true
     run_scenario          = true
   }
 }
-`,
+`, key, groupA),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "id", "PERMS"),
+					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "id", key),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "owner", "admin"),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.#", "1"),
-					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.group", "ds"),
+					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.group", groupA),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.read_project_content", "true"),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.run_scenario", "true"),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.admin", "false"),
 				),
 			},
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "PERMS"
+  project_key = %[1]q
   name        = "Perms"
   owner       = "admin"
 }
 
-resource "dataiku_group" "ds" {
-  name = "ds"
+resource "dataiku_group" "a" {
+  name = %[2]q
 }
 
-resource "dataiku_group" "readers" {
-  name = "readers"
+resource "dataiku_group" "b" {
+  name = %[3]q
 }
 
 resource "dataiku_project_permissions" "test" {
   project_key = dataiku_project.test.project_key
 
   permission {
-    group                = dataiku_group.ds.name
+    group                = dataiku_group.a.name
     read_project_content = true
   }
 
   permission {
-    group           = dataiku_group.readers.name
+    group           = dataiku_group.b.name
     read_dashboards = true
   }
 }
-`,
+`, key, groupA, groupB),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.#", "2"),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.write_project_content", "false"),
-					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.1.group", "readers"),
+					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.1.group", groupB),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.1.read_dashboards", "true"),
 				),
 			},
@@ -448,37 +474,34 @@ resource "dataiku_project_permissions" "test" {
 
 func TestAccProjectVariables(t *testing.T) {
 	testAccSetup(t)
+	key := randProjectKey(t)
+
+	project := fmt.Sprintf(`
+resource "dataiku_project" "test" {
+  project_key = %[1]q
+  name        = "Vars"
+  owner       = "admin"
+}
+`, key)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
-resource "dataiku_project" "test" {
-  project_key = "VARS"
-  name        = "Vars"
-  owner       = "admin"
-}
-
+				Config: project + `
 resource "dataiku_project_variables" "test" {
   project_key = dataiku_project.test.project_key
   standard    = jsonencode({ currency = "USD", lookback = 90 })
 }
 `,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("dataiku_project_variables.test", "id", "VARS"),
+					resource.TestCheckResourceAttr("dataiku_project_variables.test", "id", key),
 					resource.TestCheckResourceAttr("dataiku_project_variables.test", "standard", `{"currency":"USD","lookback":90}`),
 					resource.TestCheckResourceAttr("dataiku_project_variables.test", "local", `{}`),
 				),
 			},
 			{
-				Config: `
-resource "dataiku_project" "test" {
-  project_key = "VARS"
-  name        = "Vars"
-  owner       = "admin"
-}
-
+				Config: project + `
 resource "dataiku_project_variables" "test" {
   project_key = dataiku_project.test.project_key
   standard    = jsonencode({ currency = "EUR" })
@@ -491,14 +514,8 @@ resource "dataiku_project_variables" "test" {
 				),
 			},
 			{
-				// Whitespace-only changes must not produce a diff.
-				Config: `
-resource "dataiku_project" "test" {
-  project_key = "VARS"
-  name        = "Vars"
-  owner       = "admin"
-}
-
+				// Reformatting the JSON must not plan as a change.
+				Config: project + `
 resource "dataiku_project_variables" "test" {
   project_key = dataiku_project.test.project_key
   standard    = "{ \"currency\" : \"EUR\" }"
@@ -513,26 +530,29 @@ resource "dataiku_project_variables" "test" {
 
 func TestAccDataSources(t *testing.T) {
 	testAccSetup(t)
+	key := randProjectKey(t)
+	group := randName(t, "grp")
+	login := randName(t, "usr")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `
+				Config: fmt.Sprintf(`
 resource "dataiku_project" "test" {
-  project_key = "DSTEST"
+  project_key = %[1]q
   name        = "Data source test"
   owner       = "admin"
   tags        = ["x"]
 }
 
 resource "dataiku_group" "test" {
-  name        = "dsgroup"
+  name        = %[2]q
   description = "read me"
 }
 
 resource "dataiku_user" "test" {
-  login        = "dsuser"
+  login        = %[3]q
   display_name = "DS User"
   password     = "secret"
 }
@@ -552,7 +572,7 @@ data "dataiku_group" "test" {
 data "dataiku_user" "test" {
   login = dataiku_user.test.login
 }
-`,
+`, key, group, login),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "name", "Data source test"),
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "owner", "admin"),
@@ -560,7 +580,7 @@ data "dataiku_user" "test" {
 					// Assert the project is listed rather than that it is the
 					// only one, so this also holds on an instance that already
 					// has projects of its own.
-					checkListContains("data.dataiku_projects.all", "project_keys", "DSTEST"),
+					checkListContains("data.dataiku_projects.all", "project_keys", key),
 					resource.TestCheckResourceAttr("data.dataiku_group.test", "description", "read me"),
 					// definition_json is how users discover ability names.
 					resource.TestCheckResourceAttrSet("data.dataiku_group.test", "definition_json"),

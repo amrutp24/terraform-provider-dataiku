@@ -39,7 +39,7 @@ type groupResourceModel struct {
 	Description    types.String `tfsdk:"description"`
 	SourceType     types.String `tfsdk:"source_type"`
 	Admin          types.Bool   `tfsdk:"admin"`
-	LDAPGroupNames types.String `tfsdk:"ldap_group_names"`
+	LDAPGroupNames types.List   `tfsdk:"ldap_group_names"`
 	Permissions    types.Map    `tfsdk:"permissions"`
 }
 
@@ -88,9 +88,11 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Default:             booldefault.StaticBool(false),
 				MarkdownDescription: "Whether members of this group are DSS administrators.",
 			},
-			"ldap_group_names": schema.StringAttribute{
+			"ldap_group_names": schema.ListAttribute{
 				Optional:            true,
-				MarkdownDescription: "Comma-separated LDAP group names mapped to this group. Only meaningful when `source_type` is `LDAP`.",
+				Computed:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "LDAP group names mapped to this group. Only meaningful when `source_type` is `LDAP`.",
 			},
 			"permissions": schema.MapAttribute{
 				Optional:    true,
@@ -98,9 +100,20 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				ElementType: types.BoolType,
 				MarkdownDescription: "Global abilities granted to the group, keyed by the raw DSS field name " +
 					"(for example `mayCreateProjects`). The set of abilities differs between DSS versions and " +
-					"editions, so this provider passes them through rather than modelling a fixed list. To see " +
-					"the names your instance supports, read an existing group:\n\n" +
-					"```\ncurl -u $DATAIKU_API_KEY: https://dss.example.com/public/api/admin/groups/administrators\n```\n\n" +
+					"editions, so this provider passes them through rather than modelling a fixed list.\n\n" +
+					"A DSS 15 instance accepts these:\n\n" +
+					"`mayCreateProjects`, `mayCreateProjectsFromMacros`, `mayCreateProjectsFromTemplates`, " +
+					"`mayCreateProjectsFromDataikuApps`, `mayWriteInRootProjectFolder`, `mayWriteSafeCode`, " +
+					"`mayWriteUnsafeCode`, `mayCreateCodeEnvs`, `mayManageCodeEnvs`, `mayCreateClusters`, " +
+					"`mayManageClusters`, `mayCreateCodeStudioTemplates`, `mayManageCodeStudioTemplates`, " +
+					"`mayDevelopPlugins`, `mayEditLibFolders`, `mayManageUDM`, " +
+					"`mayCreateAuthenticatedConnections`, `mayViewIndexedHiveConnections`, " +
+					"`mayCreatePublishedAPIServices`, `mayCreatePublishedProjects`, `mayCreateActiveWebContent`, " +
+					"`mayCreateWorkspaces`, `mayShareToWorkspaces`, `mayCreateDataCollections`, " +
+					"`mayPublishToDataCollections`, `mayCreateMiraInfrastructures`, `mayManageFeatureStore`, " +
+					"`mayManageEnterpriseAssetLibrary`, `mayCreateEnterpriseAssetCollections`.\n\n" +
+					"To confirm what your own instance supports, read an existing group with the " +
+					"`dataiku_group` data source and inspect its `definition_json`.\n\n" +
 					"Abilities absent from this map are left at whatever the instance already has, which keeps " +
 					"a DSS upgrade from silently revoking an ability this provider version does not know about.",
 			},
@@ -239,12 +252,17 @@ func (r *groupResource) applyDefinition(ctx context.Context, plan *groupResource
 		}
 	}
 
+	ldapGroupNames := []string{}
+	if !plan.LDAPGroupNames.IsNull() && !plan.LDAPGroupNames.IsUnknown() {
+		if diags := plan.LDAPGroupNames.ElementsAs(ctx, &ldapGroupNames, false); diags.HasError() {
+			return fmt.Errorf("reading ldap_group_names: %v", diags.Errors())
+		}
+	}
+
 	return r.client.UpdateGroup(ctx, plan.Name.ValueString(), func(g map[string]any) {
 		g["description"] = plan.Description.ValueString()
 		g["admin"] = plan.Admin.ValueBool()
-		if !plan.LDAPGroupNames.IsNull() {
-			g["ldapGroupNames"] = plan.LDAPGroupNames.ValueString()
-		}
+		g["ldapGroupNames"] = ldapGroupNames
 		for key, value := range permissions {
 			g[key] = value
 		}
@@ -289,7 +307,7 @@ func (r *groupResource) readInto(ctx context.Context, name string, model *groupR
 	model.Description = nullIfEmpty(stringFromMap(group, "description"))
 	model.SourceType = types.StringValue(stringFromMap(group, "sourceType"))
 	model.Admin = types.BoolValue(boolFromMap(group, "admin"))
-	model.LDAPGroupNames = nullIfEmpty(stringFromMap(group, "ldapGroupNames"))
+	model.LDAPGroupNames = toStringList(ctx, stringSliceFromMap(group, "ldapGroupNames"), &diags)
 	model.Permissions = permissionsValue
 	return true, diags
 }

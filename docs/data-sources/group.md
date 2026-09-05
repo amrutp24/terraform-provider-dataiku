@@ -37,5 +37,5 @@ output "administrator_abilities" {
 - `definition_json` (String) The group's full definition as returned by DSS, as a JSON object. Use this to discover the ability field names your DSS version supports before setting them in a `dataiku_group` resource's `permissions` map.
 - `description` (String) Description of the group.
 - `id` (String) The group name.
-- `ldap_group_names` (String) LDAP group names mapped to this group.
+- `ldap_group_names` (List of String) LDAP group names mapped to this group.
 - `source_type` (String) Where the group is defined, `LOCAL` or `LDAP`.

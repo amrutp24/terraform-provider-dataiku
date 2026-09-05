@@ -180,6 +180,9 @@ func (f *fakeDSS) handleGroups(w http.ResponseWriter, r *http.Request) {
 			n, _ := body["name"].(string)
 			body["admin"] = false
 			body["mayCreateProjects"] = false
+			// Real DSS returns these as arrays, not strings.
+			body["ldapGroupNames"] = []any{}
+			body["azureADGroupNames"] = []any{}
 			// An ability this provider version does not model.
 			body["mayUseSomeFutureFeature"] = true
 			f.groups[n] = body

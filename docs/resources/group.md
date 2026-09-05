@@ -49,12 +49,14 @@ resource "dataiku_group" "platform_admins" {
 
 - `admin` (Boolean) Whether members of this group are DSS administrators.
 - `description` (String) Description of the group.
-- `ldap_group_names` (String) Comma-separated LDAP group names mapped to this group. Only meaningful when `source_type` is `LDAP`.
-- `permissions` (Map of Boolean) Global abilities granted to the group, keyed by the raw DSS field name (for example `mayCreateProjects`). The set of abilities differs between DSS versions and editions, so this provider passes them through rather than modelling a fixed list. To see the names your instance supports, read an existing group:
+- `ldap_group_names` (List of String) LDAP group names mapped to this group. Only meaningful when `source_type` is `LDAP`.
+- `permissions` (Map of Boolean) Global abilities granted to the group, keyed by the raw DSS field name (for example `mayCreateProjects`). The set of abilities differs between DSS versions and editions, so this provider passes them through rather than modelling a fixed list.
 
-```
-curl -u $DATAIKU_API_KEY: https://dss.example.com/public/api/admin/groups/administrators
-```
+A DSS 15 instance accepts these:
+
+`mayCreateProjects`, `mayCreateProjectsFromMacros`, `mayCreateProjectsFromTemplates`, `mayCreateProjectsFromDataikuApps`, `mayWriteInRootProjectFolder`, `mayWriteSafeCode`, `mayWriteUnsafeCode`, `mayCreateCodeEnvs`, `mayManageCodeEnvs`, `mayCreateClusters`, `mayManageClusters`, `mayCreateCodeStudioTemplates`, `mayManageCodeStudioTemplates`, `mayDevelopPlugins`, `mayEditLibFolders`, `mayManageUDM`, `mayCreateAuthenticatedConnections`, `mayViewIndexedHiveConnections`, `mayCreatePublishedAPIServices`, `mayCreatePublishedProjects`, `mayCreateActiveWebContent`, `mayCreateWorkspaces`, `mayShareToWorkspaces`, `mayCreateDataCollections`, `mayPublishToDataCollections`, `mayCreateMiraInfrastructures`, `mayManageFeatureStore`, `mayManageEnterpriseAssetLibrary`, `mayCreateEnterpriseAssetCollections`.
+
+To confirm what your own instance supports, read an existing group with the `dataiku_group` data source and inspect its `definition_json`.
 
 Abilities absent from this map are left at whatever the instance already has, which keeps a DSS upgrade from silently revoking an ability this provider version does not know about.
 - `source_type` (String) Where the group is defined. One of `LOCAL` or `LDAP`. Defaults to `LOCAL`. Changing this forces a new group.

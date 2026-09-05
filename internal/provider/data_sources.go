@@ -316,7 +316,7 @@ type groupDataSourceModel struct {
 	Description    types.String         `tfsdk:"description"`
 	SourceType     types.String         `tfsdk:"source_type"`
 	Admin          types.Bool           `tfsdk:"admin"`
-	LDAPGroupNames types.String         `tfsdk:"ldap_group_names"`
+	LDAPGroupNames types.List           `tfsdk:"ldap_group_names"`
 	DefinitionJSON jsontypes.Normalized `tfsdk:"definition_json"`
 }
 
@@ -328,12 +328,16 @@ func (d *groupDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Reads a single Dataiku DSS group by name. Requires an API key with admin rights.",
 		Attributes: map[string]schema.Attribute{
-			"id":               schema.StringAttribute{Computed: true, MarkdownDescription: "The group name."},
-			"name":             schema.StringAttribute{Required: true, MarkdownDescription: "Name of the group to read."},
-			"description":      schema.StringAttribute{Computed: true, MarkdownDescription: "Description of the group."},
-			"source_type":      schema.StringAttribute{Computed: true, MarkdownDescription: "Where the group is defined, `LOCAL` or `LDAP`."},
-			"admin":            schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether members of the group are DSS administrators."},
-			"ldap_group_names": schema.StringAttribute{Computed: true, MarkdownDescription: "LDAP group names mapped to this group."},
+			"id":          schema.StringAttribute{Computed: true, MarkdownDescription: "The group name."},
+			"name":        schema.StringAttribute{Required: true, MarkdownDescription: "Name of the group to read."},
+			"description": schema.StringAttribute{Computed: true, MarkdownDescription: "Description of the group."},
+			"source_type": schema.StringAttribute{Computed: true, MarkdownDescription: "Where the group is defined, `LOCAL` or `LDAP`."},
+			"admin":       schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether members of the group are DSS administrators."},
+			"ldap_group_names": schema.ListAttribute{
+				Computed:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "LDAP group names mapped to this group.",
+			},
 			"definition_json": schema.StringAttribute{
 				Computed:   true,
 				CustomType: jsontypes.NormalizedType{},
@@ -379,7 +383,7 @@ func (d *groupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	config.Description = types.StringValue(stringFromMap(group, "description"))
 	config.SourceType = types.StringValue(stringFromMap(group, "sourceType"))
 	config.Admin = types.BoolValue(boolFromMap(group, "admin"))
-	config.LDAPGroupNames = types.StringValue(stringFromMap(group, "ldapGroupNames"))
+	config.LDAPGroupNames = toStringList(ctx, stringSliceFromMap(group, "ldapGroupNames"), &resp.Diagnostics)
 	config.DefinitionJSON = jsontypes.NewNormalizedValue(string(encoded))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }
