@@ -70,9 +70,13 @@ func (r *connectionResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			},
 			"type": schema.StringAttribute{
 				Required: true,
-				MarkdownDescription: "Connection type, for example `PostgreSQL`, `Snowflake`, `S3`, `EC2` or " +
-					"`Filesystem`. The accepted values depend on your DSS version and license, so this " +
-					"provider does not restrict them. Changing this forces a new connection.",
+				MarkdownDescription: "Connection type, for example `PostgreSQL`, `Snowflake`, `BigQuery`, " +
+					"`Filesystem` or `EC2`. Which types your instance accepts depends on its licence, so this " +
+					"provider does not restrict the value. To list them, read " +
+					"`features.allowedConnectionTypes` from `/public/api/admin/licensing/status`.\n\n" +
+					"Note that Amazon S3 connections use the type `EC2`, for historical reasons. There is no " +
+					"`S3` type, and asking for one makes DSS fail with an opaque internal error rather than a " +
+					"clear message. Changing this forces a new connection.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

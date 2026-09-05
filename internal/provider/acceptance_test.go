@@ -700,3 +700,115 @@ resource "dataiku_code_env" "test" {
 		},
 	})
 }
+
+func TestAccProjectFolder(t *testing.T) {
+	if testAccSetup(t) != nil {
+		t.Skip("project folders are only exercised against a real instance")
+	}
+	name := randName(t, "fld")
+	renamed := randName(t, "fld")
+	child := randName(t, "fld")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_project_folder" "test" {
+  name = %[1]q
+}
+`, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_project_folder.test", "name", name),
+					resource.TestCheckResourceAttr("dataiku_project_folder.test", "parent_id", "ROOT"),
+					resource.TestCheckResourceAttrSet("dataiku_project_folder.test", "id"),
+					resource.TestCheckResourceAttrSet("dataiku_project_folder.test", "owner"),
+				),
+			},
+			{
+				// A rename is an in-place settings change, and nesting is a
+				// move: both must keep the same folder id.
+				Config: fmt.Sprintf(`
+resource "dataiku_project_folder" "parent" {
+  name = %[3]q
+}
+
+resource "dataiku_project_folder" "test" {
+  name      = %[2]q
+  parent_id = dataiku_project_folder.parent.id
+}
+`, name, renamed, child),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_project_folder.test", "name", renamed),
+					resource.TestCheckResourceAttrPair(
+						"dataiku_project_folder.test", "parent_id",
+						"dataiku_project_folder.parent", "id",
+					),
+				),
+			},
+			{
+				ResourceName:      "dataiku_project_folder.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccProjectInFolder(t *testing.T) {
+	if testAccSetup(t) != nil {
+		t.Skip("project folders are only exercised against a real instance")
+	}
+	folder := randName(t, "fld")
+	key := randProjectKey(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// The pairing dataiku_project_folder exists for: placing a
+				// project somewhere other than the root.
+				Config: fmt.Sprintf(`
+resource "dataiku_project_folder" "test" {
+  name = %[1]q
+}
+
+resource "dataiku_project" "test" {
+  project_key       = %[2]q
+  name              = "In a folder"
+  owner             = "admin"
+  project_folder_id = dataiku_project_folder.test.id
+}
+`, folder, key),
+				Check: resource.TestCheckResourceAttr("dataiku_project.test", "project_key", key),
+			},
+			{
+				// A second step, because the data source can only observe the
+				// project once it exists: the folder's contents are a reverse
+				// reference, so nothing can see them in the apply that creates
+				// the project.
+				Config: fmt.Sprintf(`
+resource "dataiku_project_folder" "test" {
+  name = %[1]q
+}
+
+resource "dataiku_project" "test" {
+  project_key       = %[2]q
+  name              = "In a folder"
+  owner             = "admin"
+  project_folder_id = dataiku_project_folder.test.id
+}
+
+data "dataiku_project_folder" "test" {
+  id = dataiku_project_folder.test.id
+}
+`, folder, key),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.dataiku_project_folder.test", "project_keys.#", "1"),
+					resource.TestCheckResourceAttr("data.dataiku_project_folder.test", "project_keys.0", key),
+					resource.TestCheckResourceAttr("data.dataiku_project_folder.test", "name", folder),
+				),
+			},
+		},
+	})
+}

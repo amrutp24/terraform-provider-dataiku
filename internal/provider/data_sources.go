@@ -488,3 +488,95 @@ func (d *connectionDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }
+
+// ---------------------------------------------------------------------------
+// dataiku_project_folder
+// ---------------------------------------------------------------------------
+
+var (
+	_ datasource.DataSource              = (*projectFolderDataSource)(nil)
+	_ datasource.DataSourceWithConfigure = (*projectFolderDataSource)(nil)
+)
+
+// NewProjectFolderDataSource returns the dataiku_project_folder data source.
+func NewProjectFolderDataSource() datasource.DataSource { return &projectFolderDataSource{} }
+
+type projectFolderDataSource struct {
+	client *dataiku.Client
+}
+
+type projectFolderDataSourceModel struct {
+	ID          types.String `tfsdk:"id"`
+	Name        types.String `tfsdk:"name"`
+	ParentID    types.String `tfsdk:"parent_id"`
+	Owner       types.String `tfsdk:"owner"`
+	ProjectKeys types.List   `tfsdk:"project_keys"`
+	ChildrenIDs types.List   `tfsdk:"children_ids"`
+}
+
+func (d *projectFolderDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_project_folder"
+}
+
+func (d *projectFolderDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Reads a project folder, including what it currently holds.\n\n" +
+			"This is where a folder's contents live rather than on the `dataiku_project_folder` " +
+			"resource, because projects and child folders point at the folder rather than the other way " +
+			"round: a resource would read them before the things that populate them exist. Pass `ROOT` " +
+			"to read the top of the hierarchy.",
+		Attributes: map[string]schema.Attribute{
+			"id":        schema.StringAttribute{Required: true, MarkdownDescription: "Id of the folder to read, or `ROOT`."},
+			"name":      schema.StringAttribute{Computed: true, MarkdownDescription: "Display name of the folder."},
+			"parent_id": schema.StringAttribute{Computed: true, MarkdownDescription: "Id of the folder this one sits in."},
+			"owner":     schema.StringAttribute{Computed: true, MarkdownDescription: "Login that owns the folder."},
+			"project_keys": schema.ListAttribute{
+				Computed:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Keys of the projects currently in this folder.",
+			},
+			"children_ids": schema.ListAttribute{
+				Computed:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Ids of the folders nested directly inside this one.",
+			},
+		},
+	}
+}
+
+func (d *projectFolderDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = clientFromDataSourceConfigure(req, &resp.Diagnostics)
+}
+
+func (d *projectFolderDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var config projectFolderDataSourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	id := config.ID.ValueString()
+	folder, err := d.client.GetProjectFolder(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to read Dataiku project folder",
+			fmt.Sprintf("Reading folder %q failed: %s", id, err),
+		)
+		return
+	}
+
+	owner := ""
+	if settings, err := d.client.GetProjectFolderSettings(ctx, id); err == nil {
+		owner = stringFromMap(settings, "owner")
+	}
+
+	config.Name = types.StringValue(folder.Name)
+	config.Owner = types.StringValue(owner)
+	config.ParentID = types.StringValue(folder.ParentID)
+	config.ProjectKeys = toStringList(ctx, folder.ProjectKeys, &resp.Diagnostics)
+	config.ChildrenIDs = toStringList(ctx, folder.ChildrenIDs, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
+}

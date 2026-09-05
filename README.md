@@ -16,8 +16,9 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 | `dataiku_project_variables` | `dataiku_user` |
 | `dataiku_user` | `dataiku_group` |
 | `dataiku_group` | `dataiku_connection` |
-| `dataiku_connection` | |
+| `dataiku_connection` | `dataiku_project_folder` |
 | `dataiku_code_env` | |
+| `dataiku_project_folder` | |
 
 Every resource supports `terraform import`.
 
@@ -138,7 +139,14 @@ the next apply. Use at most one of each per project.
 
 **`project_folder_id` is create-only.** DSS does not report a project's folder
 through the public API, so the value is applied at creation, never refreshed, and
-changing it forces a new project.
+changing it forces a new project. To see which projects a folder holds, read the
+`dataiku_project_folder` data source.
+
+**A folder's contents are on the data source, not the resource.** Projects and
+child folders point at a folder rather than the other way round, so a resource
+attribute would always be read before the things that populate it exist. The
+`dataiku_project_folder` resource therefore exposes only what the folder itself
+owns, and the matching data source exposes what is in it.
 
 ## Development
 

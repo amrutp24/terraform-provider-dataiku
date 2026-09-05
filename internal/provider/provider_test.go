@@ -147,6 +147,7 @@ func TestExpectedResourcesAreRegistered(t *testing.T) {
 		"dataiku_project",
 		"dataiku_project_permissions",
 		"dataiku_project_variables",
+		"dataiku_project_folder",
 		"dataiku_user",
 		"dataiku_group",
 		"dataiku_connection",

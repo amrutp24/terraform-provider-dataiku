@@ -16,9 +16,11 @@ resource "dataiku_connection" "warehouse" {
   allowed_groups = [dataiku_group.data_scientists.name]
 }
 
+# Amazon S3 connections use the type "EC2", for historical reasons. There is no
+# "S3" type; asking for one fails with an opaque internal error.
 resource "dataiku_connection" "datalake" {
   name = "datalake"
-  type = "S3"
+  type = "EC2"
 
   params_json = jsonencode({
     credentialsMode      = "ENVIRONMENT"

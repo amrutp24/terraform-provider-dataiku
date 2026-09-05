@@ -34,9 +34,11 @@ resource "dataiku_connection" "warehouse" {
   allowed_groups = [dataiku_group.data_scientists.name]
 }
 
+# Amazon S3 connections use the type "EC2", for historical reasons. There is no
+# "S3" type; asking for one fails with an opaque internal error.
 resource "dataiku_connection" "datalake" {
   name = "datalake"
-  type = "S3"
+  type = "EC2"
 
   params_json = jsonencode({
     credentialsMode      = "ENVIRONMENT"
@@ -52,7 +54,9 @@ resource "dataiku_connection" "datalake" {
 ### Required
 
 - `name` (String) Name of the connection. Changing this forces a new connection.
-- `type` (String) Connection type, for example `PostgreSQL`, `Snowflake`, `S3`, `EC2` or `Filesystem`. The accepted values depend on your DSS version and license, so this provider does not restrict them. Changing this forces a new connection.
+- `type` (String) Connection type, for example `PostgreSQL`, `Snowflake`, `BigQuery`, `Filesystem` or `EC2`. Which types your instance accepts depends on its licence, so this provider does not restrict the value. To list them, read `features.allowedConnectionTypes` from `/public/api/admin/licensing/status`.
+
+Note that Amazon S3 connections use the type `EC2`, for historical reasons. There is no `S3` type, and asking for one makes DSS fail with an opaque internal error rather than a clear message. Changing this forces a new connection.
 
 ### Optional
 

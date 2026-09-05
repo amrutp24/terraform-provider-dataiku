@@ -188,6 +188,7 @@ func (p *dataikuProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewProjectResource,
 		NewProjectPermissionsResource,
 		NewProjectVariablesResource,
+		NewProjectFolderResource,
 		NewUserResource,
 		NewGroupResource,
 		NewConnectionResource,
@@ -199,6 +200,7 @@ func (p *dataikuProvider) DataSources(_ context.Context) []func() datasource.Dat
 	return []func() datasource.DataSource{
 		NewProjectDataSource,
 		NewProjectsDataSource,
+		NewProjectFolderDataSource,
 		NewUserDataSource,
 		NewGroupDataSource,
 		NewConnectionDataSource,
