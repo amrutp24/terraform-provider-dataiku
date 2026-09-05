@@ -23,5 +23,27 @@ services:
     shm_size: 1gb
     restart: unless-stopped
 
+  # A database for TestAccConnectionReachesDatabase, which checks that a
+  # connection the provider creates can actually be dialled rather than merely
+  # accepted. Not started by default:
+  #
+  #   docker compose -f dev/docker-compose.yml --profile test up -d
+  #
+  # DSS reaches it by service name on the compose network, so nothing is
+  # published to the host.
+  postgres:
+    image: postgres:16-alpine
+    container_name: dss-test-postgres
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: dku
+      POSTGRES_PASSWORD: probe-pw
+      POSTGRES_DB: probe
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dku -d probe"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   dss-data:

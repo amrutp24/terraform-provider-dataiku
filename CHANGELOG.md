@@ -6,6 +6,14 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `TestAccConnectionReachesDatabase`, which asks DSS to dial the database a
+  connection describes rather than only checking that DSS accepted the
+  document. It needs a reachable database, so it skips unless
+  `DATAIKU_TEST_PG_HOST` is set; `dev/docker-compose.yml` provides one behind
+  a `test` profile.
+
 ## [0.1.0] - 2026-09-05
 
 ### Added

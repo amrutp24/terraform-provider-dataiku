@@ -97,6 +97,31 @@ make testacc
 > The acceptance tests create and delete real projects, users, groups and
 > connections. Only ever run them against this throwaway instance.
 
+## Testing that connections actually connect
+
+Most of the suite checks that DSS accepted a document. One test goes further and
+asks DSS to dial the database a `dataiku_connection` describes, which is the
+difference between a connection that parses and one that works.
+
+It needs a database DSS itself can reach, so there is a Postgres service behind
+a compose profile:
+
+```bash
+docker compose -f dev/docker-compose.yml --profile test up -d
+```
+
+Then point the test at it by service name — DSS resolves it on the compose
+network, so nothing is published to the host:
+
+```bash
+export DATAIKU_TEST_PG_HOST=dss-test-postgres
+make testacc
+```
+
+The other `DATAIKU_TEST_PG_*` variables (`_PORT`, `_DB`, `_USER`, `_PASSWORD`)
+default to what the compose service uses. Without `DATAIKU_TEST_PG_HOST` the
+test skips, so the suite stays runnable with no database.
+
 ## Reset or remove it
 
 ```bash

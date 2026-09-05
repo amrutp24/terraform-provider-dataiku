@@ -263,3 +263,19 @@ func (c *Client) UpdateCodeEnvPackages(ctx context.Context, lang, name string) (
 func (c *Client) DeleteCodeEnv(ctx context.Context, lang, name string) error {
 	return c.delete(ctx, codeEnvPath(lang, name), nil)
 }
+
+// TestConnection asks DSS to actually dial the connection, rather than merely
+// confirming the document parsed. Note the path is /connections/, not
+// /admin/connections/.
+//
+// DSS answers with connectionOK=false for a reachable-but-misconfigured
+// connection, and returns an error for connection types where testing is not
+// supported at all.
+func (c *Client) TestConnection(ctx context.Context, name string) (bool, error) {
+	out := map[string]any{}
+	if err := c.get(ctx, "/connections/"+url.PathEscape(name)+"/test", nil, &out); err != nil {
+		return false, err
+	}
+	ok, _ := out["connectionOK"].(bool)
+	return ok, nil
+}

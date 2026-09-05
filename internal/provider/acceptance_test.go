@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
@@ -13,6 +14,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+
+	"github.com/amrutp24/terraform-provider-dataiku/internal/dataiku"
 )
 
 // testAccProtoV6ProviderFactories serves the provider in-process to the
@@ -984,4 +987,85 @@ resource "dataiku_scenario" "test" {
 			},
 		},
 	})
+}
+
+// TestAccConnectionReachesDatabase is the test the connection resource was
+// missing: every other one checks that DSS accepted the document, not that the
+// connection it describes actually works. This one asks DSS to dial the
+// database.
+//
+// It needs a database DSS itself can reach, which the in-process fake cannot
+// provide, so it is skipped unless one is named. dev/README.md explains how to
+// run one alongside the DSS container.
+func TestAccConnectionReachesDatabase(t *testing.T) {
+	if testAccSetup(t) != nil {
+		t.Skip("needs a real DSS instance")
+	}
+
+	host := os.Getenv("DATAIKU_TEST_PG_HOST")
+	if host == "" {
+		t.Skip("set DATAIKU_TEST_PG_HOST (and _PORT/_DB/_USER/_PASSWORD) to test against a real database")
+	}
+	port := envOrDefault("DATAIKU_TEST_PG_PORT", "5432")
+	db := envOrDefault("DATAIKU_TEST_PG_DB", "probe")
+	user := envOrDefault("DATAIKU_TEST_PG_USER", "dku")
+	password := envOrDefault("DATAIKU_TEST_PG_PASSWORD", "probe-pw")
+
+	name := randName(t, "conn")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_connection" "test" {
+  name = %[1]q
+  type = "PostgreSQL"
+
+  params_json = jsonencode({
+    host     = %[2]q
+    port     = %[3]q
+    db       = %[4]q
+    user     = %[5]q
+    password = %[6]q
+  })
+}
+`, name, host, port, db, user, password),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_connection.test", "type", "PostgreSQL"),
+					checkConnectionReachesDatabase(name),
+				),
+			},
+		},
+	})
+}
+
+// checkConnectionReachesDatabase asks the instance whether the connection
+// Terraform just created can actually be dialled.
+func checkConnectionReachesDatabase(name string) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		client, err := dataiku.NewClient(dataiku.Config{
+			Host:   os.Getenv("DATAIKU_HOST"),
+			APIKey: os.Getenv("DATAIKU_API_KEY"),
+		})
+		if err != nil {
+			return fmt.Errorf("building a client to test the connection: %w", err)
+		}
+
+		ok, err := client.TestConnection(context.Background(), name)
+		if err != nil {
+			return fmt.Errorf("asking DSS to test connection %q: %w", name, err)
+		}
+		if !ok {
+			return fmt.Errorf("DSS reported connection %q as not working; the resource was accepted but does not connect", name)
+		}
+		return nil
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
