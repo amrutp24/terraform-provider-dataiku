@@ -42,24 +42,35 @@ type CreateProjectRequest struct {
 }
 
 // ProjectPermission grants a set of rights on a project to one group.
+//
+// The field names and the set itself were read off a DSS 15 instance. Note
+// that omitempty is deliberately absent: this document is authoritative, so a
+// right being turned off has to be sent as an explicit false rather than
+// omitted, or DSS would keep the previous value.
 type ProjectPermission struct {
-	Group                          string `json:"group,omitempty"`
-	User                           string `json:"user,omitempty"`
-	Admin                          bool   `json:"admin,omitempty"`
-	ReadProjectContent             bool   `json:"readProjectContent,omitempty"`
-	WriteProjectContent            bool   `json:"writeProjectContent,omitempty"`
-	ReadDashboards                 bool   `json:"readDashboards,omitempty"`
-	WriteDashboards                bool   `json:"writeDashboards,omitempty"`
-	MoveJob                        bool   `json:"moveJob,omitempty"`
-	RunScenario                    bool   `json:"runScenario,omitempty"`
-	ManageDashboardAuthorizations  bool   `json:"manageDashboardAuthorizations,omitempty"`
-	ManageExposedElements          bool   `json:"manageExposedElements,omitempty"`
-	ManageAdditionalDashboardUsers bool   `json:"manageAdditionalDashboardUsers,omitempty"`
-	ExportDatasetsData             bool   `json:"exportDatasetsData,omitempty"`
-	ShareToWorkspaces              bool   `json:"shareToWorkspaces,omitempty"`
+	Group string `json:"group,omitempty"`
+	User  string `json:"user,omitempty"`
+
+	Admin                          bool `json:"admin"`
+	EditPermissions                bool `json:"editPermissions"`
+	ReadProjectContent             bool `json:"readProjectContent"`
+	WriteProjectContent            bool `json:"writeProjectContent"`
+	ExportDatasetsData             bool `json:"exportDatasetsData"`
+	ReadDashboards                 bool `json:"readDashboards"`
+	WriteDashboards                bool `json:"writeDashboards"`
+	ModerateDashboards             bool `json:"moderateDashboards"`
+	PublishToDataCollections       bool `json:"publishToDataCollections"`
+	ShareToWorkspaces              bool `json:"shareToWorkspaces"`
+	RunScenarios                   bool `json:"runScenarios"`
+	ManageDashboardAuthorizations  bool `json:"manageDashboardAuthorizations"`
+	ManageExposedElements          bool `json:"manageExposedElements"`
+	ManageAdditionalDashboardUsers bool `json:"manageAdditionalDashboardUsers"`
+	ExecuteApp                     bool `json:"executeApp"`
 }
 
-// ProjectPermissions is the payload of /projects/{key}/permissions.
+// ProjectPermissions is the part of /projects/{key}/permissions this provider
+// models. The document also carries dashboardAuthorizations and
+// additionalDashboardUsers, which UpdateProjectPermissions preserves.
 type ProjectPermissions struct {
 	Owner       string              `json:"owner"`
 	Permissions []ProjectPermission `json:"permissions"`
@@ -140,12 +151,31 @@ func (c *Client) GetProjectPermissions(ctx context.Context, projectKey string) (
 	return out, nil
 }
 
-// SetProjectPermissions replaces the owner and grants of a project.
+// UpdateProjectPermissions reads the current permissions document, applies
+// mutate and writes the whole thing back. The document holds more than the
+// owner and the group grants -- dashboard authorisations and additional
+// dashboard users live there too -- and DSS replaces it wholesale on PUT, so
+// the read-modify-write is what stops those being wiped.
+func (c *Client) UpdateProjectPermissions(ctx context.Context, projectKey string, mutate func(map[string]any)) error {
+	current := map[string]any{}
+	path := "/projects/" + url.PathEscape(projectKey) + "/permissions"
+	if err := c.get(ctx, path, nil, &current); err != nil {
+		return err
+	}
+	mutate(current)
+	return c.put(ctx, path, nil, current, nil)
+}
+
+// SetProjectPermissions replaces the owner and grants of a project, keeping
+// every other field of the permissions document intact.
 func (c *Client) SetProjectPermissions(ctx context.Context, projectKey string, perms ProjectPermissions) error {
 	if perms.Permissions == nil {
 		perms.Permissions = []ProjectPermission{}
 	}
-	return c.put(ctx, "/projects/"+url.PathEscape(projectKey)+"/permissions", nil, perms, nil)
+	return c.UpdateProjectPermissions(ctx, projectKey, func(m map[string]any) {
+		m["owner"] = perms.Owner
+		m["permissions"] = perms.Permissions
+	})
 }
 
 // ProjectVariables holds the two variable scopes DSS exposes. Standard

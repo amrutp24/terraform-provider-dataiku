@@ -58,6 +58,23 @@ func randName(t *testing.T, kind string) string {
 	return "tfacc_" + kind + "_" + strings.ToLower(acctest.RandStringFromCharSet(8, acctest.CharSetAlpha))
 }
 
+// Which licence profiles a DSS instance grants depends on its licence, so the
+// two the user test switches between are configurable. The defaults match what
+// a Dataiku trial licences; read /public/api/admin/licensing/status to find
+// what yours does.
+func testAccUserProfiles(t *testing.T) (string, string) {
+	t.Helper()
+	first := os.Getenv("DATAIKU_TEST_USER_PROFILE")
+	if first == "" {
+		first = "DESIGNER"
+	}
+	second := os.Getenv("DATAIKU_TEST_USER_PROFILE_ALT")
+	if second == "" {
+		second = "NONE"
+	}
+	return first, second
+}
+
 func TestAccProject(t *testing.T) {
 	fake := testAccSetup(t)
 	key := randProjectKey(t)
@@ -246,6 +263,7 @@ func TestAccUser(t *testing.T) {
 	fake := testAccSetup(t)
 	login := randName(t, "usr")
 	group := randName(t, "grp")
+	profile, altProfile := testAccUserProfiles(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -256,17 +274,19 @@ resource "dataiku_user" "test" {
   login        = %[1]q
   display_name = "J. Smith"
   email        = "%[1]s@example.com"
-  user_profile = "FULL_DESIGNER"
+  user_profile = %[2]q
   password     = "initial-secret"
 }
-`, login),
+`, login, profile),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_user.test", "id", login),
 					resource.TestCheckResourceAttr("dataiku_user.test", "display_name", "J. Smith"),
-					resource.TestCheckResourceAttr("dataiku_user.test", "user_profile", "FULL_DESIGNER"),
+					resource.TestCheckResourceAttr("dataiku_user.test", "user_profile", profile),
 					resource.TestCheckResourceAttr("dataiku_user.test", "source_type", "LOCAL"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "enabled", "true"),
-					resource.TestCheckResourceAttr("dataiku_user.test", "groups.#", "0"),
+					// Not asserted as empty: DSS puts a new user in a default
+					// group when the configuration names none.
+					resource.TestCheckResourceAttrSet("dataiku_user.test", "groups.#"),
 				),
 			},
 			{
@@ -279,15 +299,15 @@ resource "dataiku_user" "test" {
   login        = %[1]q
   display_name = "Jane Smith"
   email        = "jane@example.com"
-  user_profile = "DATA_DESIGNER"
+  user_profile = %[3]q
   password     = "rotated-secret"
   enabled      = false
   groups       = [dataiku_group.team.name]
 }
-`, login, group),
+`, login, group, altProfile),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_user.test", "display_name", "Jane Smith"),
-					resource.TestCheckResourceAttr("dataiku_user.test", "user_profile", "DATA_DESIGNER"),
+					resource.TestCheckResourceAttr("dataiku_user.test", "user_profile", altProfile),
 					resource.TestCheckResourceAttr("dataiku_user.test", "enabled", "false"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "groups.#", "1"),
 					resource.TestCheckResourceAttr("dataiku_user.test", "groups.0", group),
@@ -298,8 +318,11 @@ resource "dataiku_user" "test" {
 				ImportState:       true,
 				ImportStateId:     login,
 				ImportStateVerify: true,
-				// DSS never returns the password.
-				ImportStateVerifyIgnore: []string{"password"},
+				// DSS never returns the password, and an import deliberately
+				// adopts the user's full group membership, including the
+				// per-user group DSS attaches itself, where the managed state
+				// tracks only the memberships the configuration names.
+				ImportStateVerifyIgnore: []string{"password", "groups.#", "groups.1"},
 			},
 		},
 	})
@@ -417,7 +440,7 @@ resource "dataiku_project_permissions" "test" {
     group                 = dataiku_group.a.name
     read_project_content  = true
     write_project_content = true
-    run_scenario          = true
+    run_scenarios         = true
   }
 }
 `, key, groupA),
@@ -427,7 +450,7 @@ resource "dataiku_project_permissions" "test" {
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.#", "1"),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.group", groupA),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.read_project_content", "true"),
-					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.run_scenario", "true"),
+					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.run_scenarios", "true"),
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.0.admin", "false"),
 				),
 			},

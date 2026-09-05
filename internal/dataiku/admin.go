@@ -15,7 +15,7 @@ type UserListItem struct {
 	DisplayName string   `json:"displayName"`
 	Email       string   `json:"email"`
 	SourceType  string   `json:"sourceType"`
-	UserProfile string   `json:"userProfile"`
+	UserProfile string   `json:"userProfile,omitempty"`
 	Enabled     bool     `json:"enabled"`
 	Groups      []string `json:"groups"`
 }
@@ -27,7 +27,7 @@ type CreateUserRequest struct {
 	DisplayName string   `json:"displayName"`
 	SourceType  string   `json:"sourceType"`
 	Groups      []string `json:"groups"`
-	UserProfile string   `json:"userProfile"`
+	UserProfile string   `json:"userProfile,omitempty"`
 	Email       string   `json:"email,omitempty"`
 }
 

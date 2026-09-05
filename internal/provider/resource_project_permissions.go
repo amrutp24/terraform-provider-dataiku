@@ -39,17 +39,20 @@ type projectPermissionsResourceModel struct {
 type projectPermissionModel struct {
 	Group                          types.String `tfsdk:"group"`
 	Admin                          types.Bool   `tfsdk:"admin"`
+	EditPermissions                types.Bool   `tfsdk:"edit_permissions"`
 	ReadProjectContent             types.Bool   `tfsdk:"read_project_content"`
 	WriteProjectContent            types.Bool   `tfsdk:"write_project_content"`
+	ExportDatasetsData             types.Bool   `tfsdk:"export_datasets_data"`
 	ReadDashboards                 types.Bool   `tfsdk:"read_dashboards"`
 	WriteDashboards                types.Bool   `tfsdk:"write_dashboards"`
-	MoveJob                        types.Bool   `tfsdk:"move_job"`
-	RunScenario                    types.Bool   `tfsdk:"run_scenario"`
-	ExportDatasetsData             types.Bool   `tfsdk:"export_datasets_data"`
+	ModerateDashboards             types.Bool   `tfsdk:"moderate_dashboards"`
+	PublishToDataCollections       types.Bool   `tfsdk:"publish_to_data_collections"`
+	ShareToWorkspaces              types.Bool   `tfsdk:"share_to_workspaces"`
+	RunScenarios                   types.Bool   `tfsdk:"run_scenarios"`
 	ManageDashboardAuthorizations  types.Bool   `tfsdk:"manage_dashboard_authorizations"`
 	ManageExposedElements          types.Bool   `tfsdk:"manage_exposed_elements"`
 	ManageAdditionalDashboardUsers types.Bool   `tfsdk:"manage_additional_dashboard_users"`
-	ShareToWorkspaces              types.Bool   `tfsdk:"share_to_workspaces"`
+	ExecuteApp                     types.Bool   `tfsdk:"execute_app"`
 }
 
 func (r *projectPermissionsResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -105,17 +108,20 @@ func (r *projectPermissionsResource) Schema(_ context.Context, _ resource.Schema
 							MarkdownDescription: "Name of the group these rights are granted to.",
 						},
 						"admin":                             permissionBool("Full administrative rights on the project."),
+						"edit_permissions":                  permissionBool("Change the project's own permissions."),
 						"read_project_content":              permissionBool("Read datasets, recipes and other project content."),
 						"write_project_content":             permissionBool("Create and modify project content."),
+						"export_datasets_data":              permissionBool("Export the data of the project's datasets."),
 						"read_dashboards":                   permissionBool("View the project's dashboards."),
 						"write_dashboards":                  permissionBool("Create and modify the project's dashboards."),
-						"move_job":                          permissionBool("Start and abort jobs in the project."),
-						"run_scenario":                      permissionBool("Run the project's scenarios."),
-						"export_datasets_data":              permissionBool("Export the data of the project's datasets."),
+						"moderate_dashboards":               permissionBool("Moderate discussions on the project's dashboards."),
+						"publish_to_data_collections":       permissionBool("Publish the project's datasets to data collections."),
+						"share_to_workspaces":               permissionBool("Share project objects to workspaces."),
+						"run_scenarios":                     permissionBool("Run the project's scenarios."),
 						"manage_dashboard_authorizations":   permissionBool("Manage which objects dashboard readers may access."),
 						"manage_exposed_elements":           permissionBool("Manage the objects the project exposes to other projects."),
 						"manage_additional_dashboard_users": permissionBool("Manage additional dashboard-only users on the project."),
-						"share_to_workspaces":               permissionBool("Share project objects to workspaces."),
+						"execute_app":                       permissionBool("Run the Dataiku application built from this project."),
 					},
 				},
 			},
@@ -187,22 +193,13 @@ func (r *projectPermissionsResource) Delete(ctx context.Context, req resource.De
 		return
 	}
 
+	// Clear the grants but keep the owner and everything else in the
+	// document, none of which this resource owns.
 	projectKey := state.ProjectKey.ValueString()
-	current, err := r.client.GetProjectPermissions(ctx, projectKey)
-	if err != nil {
-		if dataiku.IsNotFound(err) {
-			return
-		}
-		resp.Diagnostics.AddError(
-			"Unable to read Dataiku project permissions",
-			fmt.Sprintf("Reading permissions of project %q failed: %s", projectKey, err),
-		)
-		return
-	}
-
-	// Clear the grants but keep the owner, which this resource does not own.
-	current.Permissions = []dataiku.ProjectPermission{}
-	if err := r.client.SetProjectPermissions(ctx, projectKey, *current); err != nil {
+	err := r.client.UpdateProjectPermissions(ctx, projectKey, func(m map[string]any) {
+		m["permissions"] = []dataiku.ProjectPermission{}
+	})
+	if err != nil && !dataiku.IsNotFound(err) {
 		resp.Diagnostics.AddError(
 			"Unable to clear Dataiku project permissions",
 			fmt.Sprintf("Clearing permissions of project %q failed: %s", projectKey, err),
@@ -264,17 +261,20 @@ func expandPermissions(blocks []projectPermissionModel) []dataiku.ProjectPermiss
 		out = append(out, dataiku.ProjectPermission{
 			Group:                          b.Group.ValueString(),
 			Admin:                          b.Admin.ValueBool(),
+			EditPermissions:                b.EditPermissions.ValueBool(),
 			ReadProjectContent:             b.ReadProjectContent.ValueBool(),
 			WriteProjectContent:            b.WriteProjectContent.ValueBool(),
+			ExportDatasetsData:             b.ExportDatasetsData.ValueBool(),
 			ReadDashboards:                 b.ReadDashboards.ValueBool(),
 			WriteDashboards:                b.WriteDashboards.ValueBool(),
-			MoveJob:                        b.MoveJob.ValueBool(),
-			RunScenario:                    b.RunScenario.ValueBool(),
-			ExportDatasetsData:             b.ExportDatasetsData.ValueBool(),
+			ModerateDashboards:             b.ModerateDashboards.ValueBool(),
+			PublishToDataCollections:       b.PublishToDataCollections.ValueBool(),
+			ShareToWorkspaces:              b.ShareToWorkspaces.ValueBool(),
+			RunScenarios:                   b.RunScenarios.ValueBool(),
 			ManageDashboardAuthorizations:  b.ManageDashboardAuthorizations.ValueBool(),
 			ManageExposedElements:          b.ManageExposedElements.ValueBool(),
 			ManageAdditionalDashboardUsers: b.ManageAdditionalDashboardUsers.ValueBool(),
-			ShareToWorkspaces:              b.ShareToWorkspaces.ValueBool(),
+			ExecuteApp:                     b.ExecuteApp.ValueBool(),
 		})
 	}
 	return out
@@ -291,17 +291,20 @@ func flattenPermissions(perms []dataiku.ProjectPermission) []projectPermissionMo
 		out = append(out, projectPermissionModel{
 			Group:                          types.StringValue(p.Group),
 			Admin:                          types.BoolValue(p.Admin),
+			EditPermissions:                types.BoolValue(p.EditPermissions),
 			ReadProjectContent:             types.BoolValue(p.ReadProjectContent),
 			WriteProjectContent:            types.BoolValue(p.WriteProjectContent),
+			ExportDatasetsData:             types.BoolValue(p.ExportDatasetsData),
 			ReadDashboards:                 types.BoolValue(p.ReadDashboards),
 			WriteDashboards:                types.BoolValue(p.WriteDashboards),
-			MoveJob:                        types.BoolValue(p.MoveJob),
-			RunScenario:                    types.BoolValue(p.RunScenario),
-			ExportDatasetsData:             types.BoolValue(p.ExportDatasetsData),
+			ModerateDashboards:             types.BoolValue(p.ModerateDashboards),
+			PublishToDataCollections:       types.BoolValue(p.PublishToDataCollections),
+			ShareToWorkspaces:              types.BoolValue(p.ShareToWorkspaces),
+			RunScenarios:                   types.BoolValue(p.RunScenarios),
 			ManageDashboardAuthorizations:  types.BoolValue(p.ManageDashboardAuthorizations),
 			ManageExposedElements:          types.BoolValue(p.ManageExposedElements),
 			ManageAdditionalDashboardUsers: types.BoolValue(p.ManageAdditionalDashboardUsers),
-			ShareToWorkspaces:              types.BoolValue(p.ShareToWorkspaces),
+			ExecuteApp:                     types.BoolValue(p.ExecuteApp),
 		})
 	}
 	return out

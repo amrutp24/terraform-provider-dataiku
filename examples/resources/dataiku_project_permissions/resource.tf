@@ -8,7 +8,7 @@ resource "dataiku_project_permissions" "analytics" {
     write_project_content = true
     read_dashboards       = true
     write_dashboards      = true
-    run_scenario          = true
+    run_scenarios         = true
     export_datasets_data  = true
   }
 

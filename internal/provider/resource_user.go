@@ -101,17 +101,23 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"user_profile": schema.StringAttribute{
 				Optional: true,
 				Computed: true,
-				Default:  stringdefault.StaticString("READER"),
-				MarkdownDescription: "License profile assigned to the user, for example `FULL_DESIGNER`, " +
-					"`DATA_DESIGNER`, `AI_CONSUMER` or `READER`. The values your instance accepts depend on " +
-					"your Dataiku license, so this provider does not restrict them.",
+				MarkdownDescription: "Licence profile assigned to the user, for example `DESIGNER`, " +
+					"`FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends " +
+					"entirely on your Dataiku licence, so this provider neither restricts the value nor " +
+					"defaults it: leave it unset and DSS assigns its own fallback profile, which is then read " +
+					"back into state. Read `/public/api/admin/licensing/status` to see what your instance licenses.",
 				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"groups": schema.ListAttribute{
-				Optional:            true,
-				Computed:            true,
-				ElementType:         types.StringType,
-				MarkdownDescription: "Names of the groups the user belongs to.",
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				MarkdownDescription: "Names of the groups the user belongs to.\n\n" +
+					"This list is the set of memberships Terraform manages, not necessarily the user's " +
+					"complete membership. DSS attaches a per-user group of its own when a user is created " +
+					"through the API, and an LDAP or SSO mapping can add more; those are left alone and are " +
+					"not reported here, so they never show up as drift. Removing a group from this list does " +
+					"remove that membership. On `terraform import` the user's full membership is adopted.",
 			},
 			"enabled": schema.BoolAttribute{
 				Optional:            true,
@@ -225,7 +231,9 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	err := r.client.UpdateUser(ctx, login, func(u map[string]any) {
 		u["displayName"] = plan.DisplayName.ValueString()
 		u["email"] = plan.Email.ValueString()
-		u["userProfile"] = plan.UserProfile.ValueString()
+		if profile := plan.UserProfile.ValueString(); profile != "" {
+			u["userProfile"] = profile
+		}
 		u["groups"] = groups
 		u["enabled"] = plan.Enabled.ValueBool()
 		// DSS omits the password from GET, so only send it when it actually
@@ -301,7 +309,37 @@ func (r *userResource) readInto(ctx context.Context, login string, model *userRe
 	model.Email = nullIfEmpty(stringFromMap(user, "email"))
 	model.SourceType = types.StringValue(stringFromMap(user, "sourceType"))
 	model.UserProfile = types.StringValue(stringFromMap(user, "userProfile"))
-	model.Groups = toStringList(ctx, stringSliceFromMap(user, "groups"), &diags)
+	model.Groups = managedGroupsList(ctx, model.Groups, stringSliceFromMap(user, "groups"), &diags)
 	model.Enabled = types.BoolValue(boolFromMap(user, "enabled"))
 	return true, diags
+}
+
+// managedGroupsList narrows the memberships DSS reports down to the ones the
+// configuration actually names, so a group DSS attached on its own does not
+// read back as drift. A null or unknown managed list means the resource is
+// being imported, where adopting every membership is what the user wants.
+func managedGroupsList(ctx context.Context, managed types.List, actual []string, diags *diag.Diagnostics) types.List {
+	if managed.IsNull() || managed.IsUnknown() {
+		return toStringList(ctx, actual, diags)
+	}
+
+	wanted := []string{}
+	diags.Append(managed.ElementsAs(ctx, &wanted, false)...)
+	if diags.HasError() {
+		return toStringList(ctx, actual, diags)
+	}
+
+	present := make(map[string]bool, len(actual))
+	for _, name := range actual {
+		present[name] = true
+	}
+
+	// Keep the configured order so the list does not churn between reads.
+	kept := make([]string, 0, len(wanted))
+	for _, name := range wanted {
+		if present[name] {
+			kept = append(kept, name)
+		}
+	}
+	return toStringList(ctx, kept, diags)
 }

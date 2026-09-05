@@ -53,9 +53,11 @@ resource "dataiku_user" "contractor" {
 - `email` (String) Email address of the user.
 - `enabled` (Boolean) Whether the user may sign in. Defaults to `true`.
 - `groups` (List of String) Names of the groups the user belongs to.
+
+This list is the set of memberships Terraform manages, not necessarily the user's complete membership. DSS attaches a per-user group of its own when a user is created through the API, and an LDAP or SSO mapping can add more; those are left alone and are not reported here, so they never show up as drift. Removing a group from this list does remove that membership. On `terraform import` the user's full membership is adopted.
 - `password` (String, Sensitive) Password for a `LOCAL` user. DSS never returns the password, so this provider cannot detect a password changed outside Terraform; it only writes the value when it changes in configuration. Leave unset for `LDAP` users.
 - `source_type` (String) Where the user is defined. One of `LOCAL` or `LDAP`. Defaults to `LOCAL`. Changing this forces a new user.
-- `user_profile` (String) License profile assigned to the user, for example `FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. The values your instance accepts depend on your Dataiku license, so this provider does not restrict them.
+- `user_profile` (String) Licence profile assigned to the user, for example `DESIGNER`, `FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends entirely on your Dataiku licence, so this provider neither restricts the value nor defaults it: leave it unset and DSS assigns its own fallback profile, which is then read back into state. Read `/public/api/admin/licensing/status` to see what your instance licenses.
 
 ### Read-Only
 

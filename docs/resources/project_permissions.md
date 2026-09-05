@@ -29,7 +29,7 @@ resource "dataiku_project_permissions" "analytics" {
     write_project_content = true
     read_dashboards       = true
     write_dashboards      = true
-    run_scenario          = true
+    run_scenarios         = true
     export_datasets_data  = true
   }
 
@@ -66,14 +66,17 @@ Required:
 Optional:
 
 - `admin` (Boolean) Full administrative rights on the project.
+- `edit_permissions` (Boolean) Change the project's own permissions.
+- `execute_app` (Boolean) Run the Dataiku application built from this project.
 - `export_datasets_data` (Boolean) Export the data of the project's datasets.
 - `manage_additional_dashboard_users` (Boolean) Manage additional dashboard-only users on the project.
 - `manage_dashboard_authorizations` (Boolean) Manage which objects dashboard readers may access.
 - `manage_exposed_elements` (Boolean) Manage the objects the project exposes to other projects.
-- `move_job` (Boolean) Start and abort jobs in the project.
+- `moderate_dashboards` (Boolean) Moderate discussions on the project's dashboards.
+- `publish_to_data_collections` (Boolean) Publish the project's datasets to data collections.
 - `read_dashboards` (Boolean) View the project's dashboards.
 - `read_project_content` (Boolean) Read datasets, recipes and other project content.
-- `run_scenario` (Boolean) Run the project's scenarios.
+- `run_scenarios` (Boolean) Run the project's scenarios.
 - `share_to_workspaces` (Boolean) Share project objects to workspaces.
 - `write_dashboards` (Boolean) Create and modify the project's dashboards.
 - `write_project_content` (Boolean) Create and modify project content.
