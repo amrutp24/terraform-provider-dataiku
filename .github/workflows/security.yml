@@ -20,13 +20,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Gitleaks needs the history to catch a secret that was committed and
-          # later removed, which is exactly the case that matters.
+          # Scanning history, not just the diff, is the point: a secret that was
+          # committed and later removed is still in the repository.
           fetch-depth: 0
-      - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
+
+      # Gitleaks is run directly rather than through its action, which derives a
+      # commit range and cannot express "the first commit has no parent".
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+
+      - name: Scan the full history
+        run: ./gitleaks git . --config .gitleaks.toml --redact --verbose --no-banner
+
+      - name: Scan the working tree
+        run: ./gitleaks dir . --config .gitleaks.toml --redact --verbose --no-banner
 
   vulncheck:
     name: Known vulnerabilities
@@ -35,7 +48,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          # Deliberately not go-version-file. The go directive in go.mod is the
+          # minimum a consumer needs, whereas standard-library vulnerabilities
+          # are fixed by building with a newer toolchain, so this checks against
+          # the latest one rather than the oldest supported.
+          go-version: 'stable'
           cache: true
       - name: Run govulncheck
         run: |
@@ -46,6 +63,10 @@ jobs:
     name: CodeQL
     runs-on: ubuntu-latest
     permissions:
+      # Job-level permissions replace the workflow-level block rather than
+      # adding to it, so contents:read has to be repeated or the checkout of a
+      # private repository fails.
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v4

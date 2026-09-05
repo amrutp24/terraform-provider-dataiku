@@ -25,10 +25,11 @@ const (
 
 // Client talks to a single DSS instance.
 type Client struct {
-	baseURL   *url.URL
-	apiKey    string
-	userAgent string
-	http      *http.Client
+	baseURL    *url.URL
+	apiKey     string
+	userAgent  string
+	http       *http.Client
+	maxRetries int
 }
 
 // Config holds the options needed to build a Client.
@@ -44,6 +45,10 @@ type Config struct {
 	Timeout time.Duration
 	// UserAgent is appended to the default user agent string.
 	UserAgent string
+	// MaxRetries bounds how many times a failed request is repeated.
+	// Defaults to 3; zero disables retrying via NewClient only if set
+	// negative, since 0 is indistinguishable from unset.
+	MaxRetries int
 }
 
 // NewClient validates cfg and returns a ready-to-use Client.
@@ -75,7 +80,15 @@ func NewClient(cfg Config) (*Client, error) {
 		timeout = 60 * time.Second
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// DefaultTransport is documented as an *http.Transport, but a program
+	// embedding this package can replace it, and an unchecked assertion would
+	// panic rather than degrade.
+	var transport *http.Transport
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = base.Clone()
+	} else {
+		transport = &http.Transport{}
+	}
 	if cfg.Insecure {
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{}
@@ -88,11 +101,20 @@ func NewClient(cfg Config) (*Client, error) {
 		ua = cfg.UserAgent + " " + defaultUserAgent
 	}
 
+	retries := cfg.MaxRetries
+	switch {
+	case retries < 0:
+		retries = 0
+	case retries == 0:
+		retries = defaultMaxRetries
+	}
+
 	return &Client{
-		baseURL:   u,
-		apiKey:    cfg.APIKey,
-		userAgent: ua,
-		http:      &http.Client{Timeout: timeout, Transport: transport},
+		baseURL:    u,
+		apiKey:     cfg.APIKey,
+		userAgent:  ua,
+		http:       &http.Client{Timeout: timeout, Transport: transport},
+		maxRetries: retries,
 	}, nil
 }
 
@@ -117,30 +139,20 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		endpoint.RawQuery = query.Encode()
 	}
 
-	var reader io.Reader
+	// The body is buffered rather than streamed so that a retry can send it
+	// again.
+	var encoded []byte
 	if body != nil {
-		encoded, marshalErr := json.Marshal(body)
+		var marshalErr error
+		encoded, marshalErr = json.Marshal(body)
 		if marshalErr != nil {
 			return fmt.Errorf("encoding request body for %s %s: %w", method, path, marshalErr)
 		}
-		reader = bytes.NewReader(encoded)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reader)
+	resp, err := c.doWithRetries(ctx, method, path, endpoint.String(), encoded, body != nil)
 	if err != nil {
-		return fmt.Errorf("building request for %s %s: %w", method, path, err)
-	}
-	// DSS expects the API key as the basic-auth username with an empty password.
-	req.SetBasicAuth(c.apiKey, "")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", c.userAgent)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("calling %s %s: %w", method, path, err)
+		return err
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -167,6 +179,64 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		return fmt.Errorf("decoding response of %s %s: %w (body: %s)", method, path, err, truncate(string(raw), 512))
 	}
 	return nil
+}
+
+// doWithRetries sends the request, repeating it while the failure looks
+// transient and the method is safe to repeat. The caller owns the returned
+// response body.
+func (c *Client) doWithRetries(ctx context.Context, method, path, endpoint string, encoded []byte, hasBody bool) (*http.Response, error) {
+	var lastErr error
+
+	for attempt := 0; ; attempt++ {
+		var reader io.Reader
+		if hasBody {
+			reader = bytes.NewReader(encoded)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
+		if err != nil {
+			return nil, fmt.Errorf("building request for %s %s: %w", method, path, err)
+		}
+		// DSS expects the API key as the basic-auth username with an empty password.
+		req.SetBasicAuth(c.apiKey, "")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", c.userAgent)
+		if hasBody {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := c.http.Do(req)
+		if err == nil && (resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests) {
+			return resp, nil
+		}
+		if err != nil {
+			lastErr = fmt.Errorf("calling %s %s: %w", method, path, err)
+			// Giving up is the caller's decision, not a transient failure.
+			if isContextError(err) {
+				return nil, lastErr
+			}
+		}
+
+		if attempt >= c.maxRetries || !shouldRetry(method, resp, err) {
+			if err != nil {
+				return nil, lastErr
+			}
+			return resp, nil
+		}
+
+		wait := retryAfter(resp, attempt)
+		if resp != nil {
+			// The body has to be drained before the connection can be reused.
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		if sleepErr := sleepWithContext(ctx, wait); sleepErr != nil {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, fmt.Errorf("calling %s %s: %w", method, path, sleepErr)
+		}
+	}
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, out any) error {

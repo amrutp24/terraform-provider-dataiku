@@ -36,4 +36,7 @@ provider "dataiku" {
 - `api_key` (String, Sensitive) A DSS API key. Most resources in this provider require a key with admin rights. May also be set with the `DATAIKU_API_KEY` environment variable, which is the recommended way to supply it.
 - `host` (String) Base URL of the DSS instance, for example `https://dss.example.com`. A trailing `/public/api` is accepted and ignored. May also be set with the `DATAIKU_HOST` environment variable.
 - `insecure` (Boolean) Skip TLS certificate verification. Only use this against instances with a self-signed certificate. May also be set with the `DATAIKU_INSECURE` environment variable.
+- `max_retries` (Number) How many times to repeat a request that failed transiently — a connection error, a `429`, or a `5xx`. Defaults to `3`; set `0` to disable retrying.
+
+Only requests that are safe to repeat are retried. A `POST` is repeated solely on a `429`, where DSS has said outright that it did not process the request, because a `5xx` or a dropped connection on a create can mean the object was made and only the reply was lost — repeating that would create a second one.
 - `timeout_seconds` (Number) Per-request timeout in seconds. Defaults to `60`.

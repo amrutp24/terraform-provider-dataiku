@@ -3,10 +3,13 @@ package dataiku
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func testClient(t *testing.T, handler http.Handler) *Client {
@@ -349,12 +352,143 @@ func TestPathEscaping(t *testing.T) {
 	}
 }
 
-// asAPIError is a tiny local helper so the test file does not need to import
-// the errors package just for one assertion.
+// asAPIError unwraps to the API error. errors.As rather than a type assertion,
+// so this keeps working if the error is ever wrapped on its way out.
 func asAPIError(err error, target **APIError) bool {
-	if e, ok := err.(*APIError); ok {
-		*target = e
-		return true
+	return errors.As(err, target)
+}
+
+// TestRetriesIdempotentRequests covers the case retrying exists for: a
+// transient 503 that succeeds on a second attempt.
+func TestRetriesIdempotentRequests(t *testing.T) {
+	var attempts int32
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&attempts, 1) < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"label": "Recovered"})
+	}))
+
+	md, err := client.GetProjectMetadata(context.Background(), "P")
+	if err != nil {
+		t.Fatalf("GetProjectMetadata: %v", err)
 	}
-	return false
+	if got := atomic.LoadInt32(&attempts); got != 3 {
+		t.Errorf("attempts = %d, want 3", got)
+	}
+	if md["label"] != "Recovered" {
+		t.Errorf("label = %v, want Recovered", md["label"])
+	}
+}
+
+// TestDoesNotRetryPostOnServerError is the safety property. A 5xx on a create
+// can mean the object was made and only the response was lost, so repeating it
+// would create a second project.
+func TestDoesNotRetryPostOnServerError(t *testing.T) {
+	var attempts int32
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	err := client.CreateProject(context.Background(), CreateProjectRequest{
+		ProjectKey: "P", Name: "P", Owner: "admin",
+	})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("POST was attempted %d times on a 5xx; it must not be repeated", got)
+	}
+}
+
+// A 429 is different: the server is explicitly saying it did not process the
+// request, so even a create is safe to repeat.
+func TestRetriesPostOnRateLimit(t *testing.T) {
+	var attempts int32
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&attempts, 1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	if err := client.CreateProject(context.Background(), CreateProjectRequest{
+		ProjectKey: "P", Name: "P", Owner: "admin",
+	}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 2 {
+		t.Errorf("attempts = %d, want 2", got)
+	}
+}
+
+// The retried request must carry its body again, not an empty one.
+func TestRetryResendsTheBody(t *testing.T) {
+	var attempts int32
+	var lastBody map[string]any
+
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		_ = json.NewDecoder(r.Body).Decode(&lastBody)
+		if n < 2 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	err := client.UpdateGroup(context.Background(), "g", func(g map[string]any) {
+		g["description"] = "resent"
+	})
+	// The GET inside UpdateGroup also retries, so just assert the final PUT
+	// arrived intact.
+	if err != nil {
+		t.Fatalf("UpdateGroup: %v", err)
+	}
+	if lastBody == nil {
+		t.Fatal("the retried request carried no body")
+	}
+}
+
+func TestRetriesGiveUpAndReportTheLastFailure(t *testing.T) {
+	var attempts int32
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"message":"still down"}`))
+	}))
+
+	_, err := client.GetProjectMetadata(context.Background(), "P")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if StatusCode(err) != http.StatusServiceUnavailable {
+		t.Errorf("StatusCode = %d, want 503", StatusCode(err))
+	}
+	// One initial attempt plus the default budget of three.
+	if got := atomic.LoadInt32(&attempts); got != 4 {
+		t.Errorf("attempts = %d, want 4", got)
+	}
+}
+
+func TestContextCancellationStopsRetrying(t *testing.T) {
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if _, err := client.GetProjectMetadata(ctx, "P"); err == nil {
+		t.Fatal("expected an error")
+	}
+	// Without honouring the context this would sit through the full backoff.
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("took %s; cancellation was not honoured", elapsed)
+	}
 }

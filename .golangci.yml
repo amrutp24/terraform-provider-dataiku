@@ -1,0 +1,47 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    # An unchecked error from an API call or a state write is the failure mode
+    # that matters most in a provider: it turns into silent, wrong state.
+    - errcheck
+    - bodyclose
+    - contextcheck
+    - nilerr
+    - errorlint
+
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - misspell
+    - unconvert
+    - copyloopvar
+    - durationcheck
+    - makezero
+    - predeclared
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+    # No locale is enforced: Go identifiers from the plugin framework use US
+    # spelling (jsontypes.Normalized), so pinning a locale flags library names
+    # rather than genuine typos.
+
+  exclusions:
+    rules:
+      # Tests deliberately ignore errors on throwaway objects and use fixed
+      # credentials; neither is worth flagging.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

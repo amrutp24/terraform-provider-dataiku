@@ -2,14 +2,18 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -41,6 +45,7 @@ type providerModel struct {
 	APIKey         types.String `tfsdk:"api_key"`
 	Insecure       types.Bool   `tfsdk:"insecure"`
 	TimeoutSeconds types.Int64  `tfsdk:"timeout_seconds"`
+	MaxRetries     types.Int64  `tfsdk:"max_retries"`
 }
 
 func (p *dataikuProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -71,6 +76,18 @@ func (p *dataikuProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 			"timeout_seconds": schema.Int64Attribute{
 				Optional:            true,
 				MarkdownDescription: "Per-request timeout in seconds. Defaults to `60`.",
+			},
+			"max_retries": schema.Int64Attribute{
+				Optional: true,
+				MarkdownDescription: "How many times to repeat a request that failed transiently — a " +
+					"connection error, a `429`, or a `5xx`. Defaults to `3`; set `0` to disable retrying.\n\n" +
+					"Only requests that are safe to repeat are retried. A `POST` is repeated solely on a " +
+					"`429`, where DSS has said outright that it did not process the request, because a `5xx` " +
+					"or a dropped connection on a create can mean the object was made and only the reply was " +
+					"lost — repeating that would create a second one.",
+				Validators: []validator.Int64{
+					int64validator.AtLeast(0),
+				},
 			},
 		},
 	}
@@ -148,12 +165,29 @@ func (p *dataikuProvider) Configure(ctx context.Context, req provider.ConfigureR
 		timeout = time.Duration(secs) * time.Second
 	}
 
+	// A negative budget is how the client is told to disable retrying, since
+	// zero cannot be told apart from "unset" in a plain int.
+	maxRetries := -1
+	if !config.MaxRetries.IsNull() && !config.MaxRetries.IsUnknown() {
+		if n := config.MaxRetries.ValueInt64(); n > 0 {
+			maxRetries = int(n)
+		}
+	} else {
+		maxRetries = 0 // let the client apply its default
+	}
+
+	// Naming the Terraform version as well as the provider gives whoever reads
+	// the DSS access logs something actionable.
+	userAgent := fmt.Sprintf("terraform-provider-dataiku/%s (+https://registry.terraform.io/providers/amrutp24/dataiku) Terraform/%s",
+		p.version, req.TerraformVersion)
+
 	client, err := dataiku.NewClient(dataiku.Config{
-		Host:      host,
-		APIKey:    apiKey,
-		Insecure:  insecure,
-		Timeout:   timeout,
-		UserAgent: "terraform-provider-dataiku/" + p.version,
+		Host:       host,
+		APIKey:     apiKey,
+		Insecure:   insecure,
+		Timeout:    timeout,
+		UserAgent:  userAgent,
+		MaxRetries: maxRetries,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to create Dataiku API client", err.Error())

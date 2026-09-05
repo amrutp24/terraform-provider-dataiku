@@ -24,7 +24,7 @@ func TestProviderSchema(t *testing.T) {
 		t.Fatalf("provider schema is not implementable: %v", diags)
 	}
 
-	for _, name := range []string{"host", "api_key", "insecure", "timeout_seconds"} {
+	for _, name := range []string{"host", "api_key", "insecure", "timeout_seconds", "max_retries"} {
 		if _, ok := resp.Schema.Attributes[name]; !ok {
 			t.Errorf("provider schema is missing the %q attribute", name)
 		}

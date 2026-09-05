@@ -1,0 +1,30 @@
+name: Feature request
+description: A resource, data source or argument the provider is missing.
+labels: [enhancement]
+
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task, rather than the implementation you have in mind. It often turns out there is a better fit than the thing being asked for.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would it look like in configuration?
+      render: hcl
+
+  - type: input
+    id: api
+    attributes:
+      label: Which DSS API does it use?
+      description: The endpoint, if you know it. This is the single most useful thing you can supply, because the shape of what DSS accepts is often not what its documentation implies.
+      placeholder: "POST /public/api/projects/{projectKey}/scenarios/"
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How are you managing it today?

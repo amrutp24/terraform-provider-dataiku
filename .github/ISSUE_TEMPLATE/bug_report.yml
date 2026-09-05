@@ -1,0 +1,65 @@
+name: Bug report
+description: Something the provider does that it should not, or fails to do.
+labels: [bug]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please redact API keys, passwords and hostnames from anything you paste.
+
+  - type: input
+    id: provider-version
+    attributes:
+      label: Provider version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform version
+      description: Output of `terraform version`.
+      placeholder: "1.11.2"
+    validations:
+      required: true
+
+  - type: input
+    id: dss-version
+    attributes:
+      label: DSS version and edition
+      description: Shown under Administration in DSS. The edition matters, since the API is licensed differently across them.
+      placeholder: "15.0.0, Enterprise trial"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Terraform configuration
+      description: The smallest configuration that shows the problem.
+      render: hcl
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the error. `TF_LOG=DEBUG` output helps if the failure is in an API call.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Whether it is reproducible, whether it worked before, anything unusual about the instance.
