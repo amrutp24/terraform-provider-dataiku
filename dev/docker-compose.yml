@@ -1,0 +1,27 @@
+# A throwaway DSS instance for exercising the provider by hand.
+#
+#   docker compose -f dev/docker-compose.yml up -d
+#
+# First start takes a few minutes while DSS initialises. Then open
+# http://localhost:10000 and sign in as admin / admin.
+#
+# This is Dataiku's evaluation image. It is not a production setup, and the
+# data directory here is disposable: delete the volume to start clean.
+services:
+  dss:
+    image: dataiku/dss:${DSS_VERSION:-latest}
+    container_name: dataiku-dss-dev
+    ports:
+      - "127.0.0.1:10000:10000"
+    volumes:
+      - dss-data:/home/dataiku/dss
+    # DSS wants a generous file descriptor limit and shared memory.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 1gb
+    restart: unless-stopped
+
+volumes:
+  dss-data:

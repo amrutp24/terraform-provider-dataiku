@@ -143,10 +143,22 @@ provider_installation {
 }
 ```
 
+### A local DSS instance
+
+`dev/` brings up a disposable DSS in Docker to develop against:
+
+```bash
+docker compose -f dev/docker-compose.yml up -d
+```
+
+See [dev/README.md](dev/README.md) for first-run setup and how to mint an API key.
+
 ### Acceptance tests
 
-Acceptance tests create and delete real objects. Point them at a scratch
-instance, never production:
+The acceptance tests run against an in-process fake DSS by default, so
+`go test ./...` needs no instance. Setting `DATAIKU_HOST` and `DATAIKU_API_KEY`
+points them at a real one instead. Either way they create and delete real
+objects, so use a scratch instance, never production:
 
 ```bash
 export DATAIKU_HOST=https://dss-scratch.example.com

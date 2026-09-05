@@ -2,7 +2,10 @@ package provider
 
 import (
 	"fmt"
+	"os"
 	"regexp"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -17,10 +20,24 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 	"dataiku": providerserver.NewProtocol6WithError(New("test")()),
 }
 
-// testAccSetup starts a fake DSS instance and points the provider at it
-// through the environment, which is also how a real run is configured.
+// testAccSetup decides what the tests run against. With DATAIKU_HOST set they
+// use that instance, which is how you validate the provider against real DSS.
+// Otherwise they start an in-process fake, so the suite is runnable with no
+// instance at all.
+//
+// It returns nil when running against a real instance, because the assertions
+// that inspect what the server stored can only be made against the fake.
 func testAccSetup(t *testing.T) *fakeDSS {
 	t.Helper()
+
+	if host := os.Getenv("DATAIKU_HOST"); host != "" {
+		if os.Getenv("DATAIKU_API_KEY") == "" {
+			t.Fatal("DATAIKU_HOST is set but DATAIKU_API_KEY is not; both are needed to test against a real instance")
+		}
+		t.Logf("running against the DSS instance at %s", host)
+		return nil
+	}
+
 	fake, host := newFakeDSS(t)
 	t.Setenv("DATAIKU_HOST", host)
 	t.Setenv("DATAIKU_API_KEY", "acceptance-test-key")
@@ -92,6 +109,9 @@ resource "dataiku_project" "test" {
 		},
 	})
 
+	if fake == nil {
+		return
+	}
 	if fake.droppedUnmodelledField() {
 		t.Error("a project update wrote back a document missing a field the provider does not model")
 	}
@@ -197,7 +217,7 @@ resource "dataiku_group" "test" {
 	})
 
 	// The whole reason the client does read-modify-write.
-	if fake.droppedUnmodelledField() {
+	if fake != nil && fake.droppedUnmodelledField() {
 		t.Error("a group update revoked an ability the provider does not model")
 	}
 }
@@ -263,7 +283,7 @@ resource "dataiku_user" "test" {
 		},
 	})
 
-	if fake.droppedUnmodelledField() {
+	if fake != nil && fake.droppedUnmodelledField() {
 		t.Error("a user update dropped a field the provider does not model")
 	}
 }
@@ -294,6 +314,9 @@ resource "dataiku_connection" "test" {
 					resource.TestCheckResourceAttr("dataiku_connection.test", "usable_by", "ALL"),
 					resource.TestCheckResourceAttr("dataiku_connection.test", "allowed_groups.#", "0"),
 					func(_ *terraform.State) error {
+						if fake == nil {
+							return nil
+						}
 						if got := fake.storedConnectionPassword("warehouse"); got != "super-secret" {
 							return fmt.Errorf("stored password = %q, want super-secret", got)
 						}
@@ -329,6 +352,9 @@ resource "dataiku_connection" "test" {
 					resource.TestCheckResourceAttr("dataiku_connection.test", "usable_by", "ALLOWED"),
 					resource.TestCheckResourceAttr("dataiku_connection.test", "allowed_groups.0", "readers"),
 					func(_ *terraform.State) error {
+						if fake == nil {
+							return nil
+						}
 						if got := fake.storedConnectionPassword("warehouse"); got != "super-secret" {
 							return fmt.Errorf("the update destroyed the stored password: got %q", got)
 						}
@@ -531,8 +557,10 @@ data "dataiku_user" "test" {
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "name", "Data source test"),
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "owner", "admin"),
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "tags.0", "x"),
-					resource.TestCheckResourceAttr("data.dataiku_projects.all", "project_keys.#", "1"),
-					resource.TestCheckResourceAttr("data.dataiku_projects.all", "projects.0.project_key", "DSTEST"),
+					// Assert the project is listed rather than that it is the
+					// only one, so this also holds on an instance that already
+					// has projects of its own.
+					checkListContains("data.dataiku_projects.all", "project_keys", "DSTEST"),
 					resource.TestCheckResourceAttr("data.dataiku_group.test", "description", "read me"),
 					// definition_json is how users discover ability names.
 					resource.TestCheckResourceAttrSet("data.dataiku_group.test", "definition_json"),
@@ -542,4 +570,30 @@ data "dataiku_user" "test" {
 			},
 		},
 	})
+}
+
+// checkListContains asserts that a list attribute holds want somewhere in it,
+// without pinning the list's length or the element's position.
+func checkListContains(resourceName, attribute, want string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		rs, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("%s is not in state", resourceName)
+		}
+
+		prefix := attribute + "."
+		found := []string{}
+		for key, value := range rs.Primary.Attributes {
+			if !strings.HasPrefix(key, prefix) || strings.HasSuffix(key, ".#") {
+				continue
+			}
+			if value == want {
+				return nil
+			}
+			found = append(found, value)
+		}
+
+		sort.Strings(found)
+		return fmt.Errorf("%s.%s does not contain %q; it holds %v", resourceName, attribute, want, found)
+	}
 }
