@@ -124,6 +124,18 @@ the first's outputs, or apply in two passes with `-target`. Splitting is the
 option that stays sane, and it also lets you rebuild the instance without
 touching the configuration.
 
+## Tests
+
+```bash
+terraform init -backend=false && terraform test
+```
+
+The module creates nothing, so the tests assert on the rendered script at plan
+time: no credentials, no cloud, no cleanup. They cover the conditional blocks
+(licence present or absent, API key wanted or not), that the guard against
+reinstalling over a live data directory is present, that DSS is never run as
+root, and that the variable validations actually fire.
+
 ## Licences
 
 DSS needs a licence that includes the public REST API for the provider to be

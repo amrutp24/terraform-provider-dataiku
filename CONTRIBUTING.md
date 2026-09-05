@@ -5,11 +5,18 @@
 Requires Go (the version in `go.mod`) and Terraform 1.8 or later.
 
 ```bash
-make build   # compile
-make test    # unit tests, no DSS instance needed
-make lint    # gofmt + go vet
-make docs    # regenerate docs/ from the schemas and examples/
+make build        # compile
+make test         # unit tests plus the module tests, no DSS instance needed
+make test-module  # just the dss-bootstrap module tests
+make lint         # gofmt, go vet, golangci-lint
+make docs         # regenerate docs/ from the schemas and examples/
 ```
+
+The `dss-bootstrap` module is covered by Terraform's own test framework
+(`*.tftest.hcl`) rather than Terratest. It creates no infrastructure — it only
+renders a script — so every assertion is a plan-time check on that output, which
+means no credentials, no cloud and no cleanup. Terratest earns its weight when a
+module really provisions something; here it would only add a Go dependency.
 
 `docs/` is generated. Edit the schema descriptions and the files under
 `examples/`, then run `make docs` — CI fails if the committed output is stale.

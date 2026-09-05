@@ -48,6 +48,22 @@ jobs:
         with:
           version: latest
 
+  module:
+    name: Module tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      # The module renders a template and creates nothing, so its tests need
+      # no credentials and no cloud.
+      - name: terraform test
+        working-directory: modules/dss-bootstrap
+        run: |
+          terraform init -backend=false
+          terraform test
+
   docs:
     name: Docs are up to date
     runs-on: ubuntu-latest
