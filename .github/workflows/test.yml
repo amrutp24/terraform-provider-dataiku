@@ -1,0 +1,95 @@
+name: Test
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: go mod download
+      - run: go build -v ./...
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - run: go vet ./...
+
+  docs:
+    name: Docs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: make docs
+      - name: Fail if docs would change
+        run: |
+          git diff --compact-summary --exit-code -- docs || \
+            (echo "*** Docs are stale. Run 'make docs' and commit the result."; exit 1)
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: go mod download
+      - run: go test -v -cover -race ./...
+        timeout-minutes: 10
+
+  acceptance:
+    name: Acceptance tests
+    runs-on: ubuntu-latest
+    # Acceptance tests create and delete real objects, so they only run when a
+    # DSS instance has been configured for the repository.
+    if: ${{ vars.DATAIKU_HOST != '' }}
+    needs: [build, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform:
+          - '1.8.*'
+          - '1.11.*'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ matrix.terraform }}
+          terraform_wrapper: false
+      - run: go mod download
+      - env:
+          TF_ACC: '1'
+          DATAIKU_HOST: ${{ vars.DATAIKU_HOST }}
+          DATAIKU_API_KEY: ${{ secrets.DATAIKU_API_KEY }}
+        run: go test -v -cover ./internal/provider/
+        timeout-minutes: 20

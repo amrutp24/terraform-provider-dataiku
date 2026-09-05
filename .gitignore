@@ -1,0 +1,31 @@
+# Compiled provider binary
+terraform-provider-dataiku
+terraform-provider-dataiku.exe
+/dist/
+
+# Terraform working files
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Go
+*.test
+*.out
+vendor/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
