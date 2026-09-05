@@ -26,6 +26,26 @@ These are marked sensitive, so Terraform keeps them out of plan and apply output
 but **being sensitive does not keep them out of state**. Treat the state file as
 a secret: use a backend that encrypts at rest and restricts who can read it.
 
+## Keeping secrets out of state entirely
+
+On Terraform 1.11 or later, two of those have write-only alternatives that are
+never persisted to plan or state:
+
+| Instead of | Use | Alongside |
+| --- | --- | --- |
+| `dataiku_user.password` | `password_wo` | `password_wo_version` |
+| `dataiku_connection.params_json` | `params_json_wo` | `params_json_wo_version` |
+
+Terraform reads a write-only value from configuration at apply time and discards
+it. Nothing is retained, which is also why the version marker exists: with no
+prior value to compare against, changing the secret alone would go unnoticed, so
+bumping the marker is what triggers a rotation.
+
+`dataiku_project_variables.local` has no write-only form, deliberately. DSS
+returns those variables on read, so the provider would put them back into state
+on the next refresh whatever the configuration said. A write-only variant would
+imply a guarantee it could not keep.
+
 The API key itself is never written to state. Supply it through the
 `DATAIKU_API_KEY` environment variable rather than in configuration.
 

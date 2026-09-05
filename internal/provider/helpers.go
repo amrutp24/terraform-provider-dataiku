@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/amrutp24/terraform-provider-dataiku/internal/dataiku"
@@ -109,4 +110,22 @@ func nullIfEmpty(s string) types.String {
 		return types.StringNull()
 	}
 	return types.StringValue(s)
+}
+
+// writeOnlyString reads a write-only attribute out of the configuration.
+//
+// Write-only values never appear in the plan or in state — that is the point of
+// them — so the usual plan model holds null and the value has to come from the
+// config directly. fallback is returned when the write-only attribute is unset,
+// which is how the legacy non-write-only attribute keeps working.
+func writeOnlyString(ctx context.Context, config tfsdk.Config, attribute string, fallback types.String, diags *diag.Diagnostics) string {
+	var value types.String
+	diags.Append(config.GetAttribute(ctx, path.Root(attribute), &value)...)
+	if diags.HasError() {
+		return ""
+	}
+	if !value.IsNull() && !value.IsUnknown() && value.ValueString() != "" {
+		return value.ValueString()
+	}
+	return fallback.ValueString()
 }

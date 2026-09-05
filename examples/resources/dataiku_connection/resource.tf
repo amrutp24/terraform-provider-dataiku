@@ -4,13 +4,17 @@ resource "dataiku_connection" "warehouse" {
 
   description = "Analytics read replica"
 
-  params_json = jsonencode({
+  # params_json_wo keeps the credentials out of Terraform state. Bump the
+  # version marker when they change. Needs Terraform 1.11+; use params_json
+  # instead on older versions, accepting that it is persisted.
+  params_json_wo = jsonencode({
     host     = "db.example.com"
     port     = "5432"
     db       = "analytics"
     user     = "dataiku"
     password = var.warehouse_password
   })
+  params_json_wo_version = "1"
 
   usable_by      = "ALLOWED"
   allowed_groups = [dataiku_group.data_scientists.name]

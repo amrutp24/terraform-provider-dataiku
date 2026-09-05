@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -20,9 +21,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = (*userResource)(nil)
-	_ resource.ResourceWithConfigure   = (*userResource)(nil)
-	_ resource.ResourceWithImportState = (*userResource)(nil)
+	_ resource.Resource                     = (*userResource)(nil)
+	_ resource.ResourceWithConfigure        = (*userResource)(nil)
+	_ resource.ResourceWithImportState      = (*userResource)(nil)
+	_ resource.ResourceWithConfigValidators = (*userResource)(nil)
 )
 
 // NewUserResource returns the dataiku_user resource.
@@ -33,15 +35,17 @@ type userResource struct {
 }
 
 type userResourceModel struct {
-	ID          types.String `tfsdk:"id"`
-	Login       types.String `tfsdk:"login"`
-	Password    types.String `tfsdk:"password"`
-	DisplayName types.String `tfsdk:"display_name"`
-	Email       types.String `tfsdk:"email"`
-	SourceType  types.String `tfsdk:"source_type"`
-	UserProfile types.String `tfsdk:"user_profile"`
-	Groups      types.List   `tfsdk:"groups"`
-	Enabled     types.Bool   `tfsdk:"enabled"`
+	ID                types.String `tfsdk:"id"`
+	Login             types.String `tfsdk:"login"`
+	Password          types.String `tfsdk:"password"`
+	PasswordWO        types.String `tfsdk:"password_wo"`
+	PasswordWOVersion types.String `tfsdk:"password_wo_version"`
+	DisplayName       types.String `tfsdk:"display_name"`
+	Email             types.String `tfsdk:"email"`
+	SourceType        types.String `tfsdk:"source_type"`
+	UserProfile       types.String `tfsdk:"user_profile"`
+	Groups            types.List   `tfsdk:"groups"`
+	Enabled           types.Bool   `tfsdk:"enabled"`
 }
 
 func (r *userResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -74,7 +78,27 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Sensitive: true,
 				MarkdownDescription: "Password for a `LOCAL` user. DSS never returns the password, so this " +
 					"provider cannot detect a password changed outside Terraform; it only writes the value " +
-					"when it changes in configuration. Leave unset for `LDAP` users.",
+					"when it changes in configuration. Leave unset for `LDAP` users.\n\n" +
+					"**This value is stored in Terraform state.** Prefer `password_wo`, which is not.",
+			},
+			"password_wo": schema.StringAttribute{
+				Optional:  true,
+				Sensitive: true,
+				WriteOnly: true,
+				MarkdownDescription: "The same as `password`, but never written to plan or state. Terraform " +
+					"reads it from configuration at apply time and discards it.\n\n" +
+					"Because nothing is retained, the provider cannot tell that the value changed. Bump " +
+					"`password_wo_version` to make it send the password again — that is what a rotation " +
+					"looks like:\n\n" +
+					"```\npassword_wo         = ephemeral.some_secret.pw.value\npassword_wo_version = \"2\"\n```\n\n" +
+					"Requires Terraform 1.11 or later. Conflicts with `password`.",
+			},
+			"password_wo_version": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "An arbitrary marker whose change tells the provider to send " +
+					"`password_wo` again. Any value works — a counter, a date, a hash of the secret. " +
+					"Required alongside `password_wo`, since without it a rotated password would never " +
+					"reach the instance.",
 			},
 			"display_name": schema.StringAttribute{
 				Optional:            true,
@@ -129,6 +153,26 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 	}
 }
 
+func (r *userResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.Conflicting(
+			path.MatchRoot("password"),
+			path.MatchRoot("password_wo"),
+		),
+		// Without the version marker a rotated write-only password would be
+		// read from configuration and then never sent, because nothing in
+		// state changed to prompt an update.
+		resourcevalidator.RequiredTogether(
+			path.MatchRoot("password_wo"),
+			path.MatchRoot("password_wo_version"),
+		),
+		resourcevalidator.PreferWriteOnlyAttribute(
+			path.MatchRoot("password"),
+			path.MatchRoot("password_wo"),
+		),
+	}
+}
+
 func (r *userResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFromResourceConfigure(req, &resp.Diagnostics)
 }
@@ -142,13 +186,16 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 	login := plan.Login.ValueString()
 	groups := fromStringList(ctx, plan.Groups, &resp.Diagnostics)
+	// A write-only value exists only in configuration; it is null in the plan
+	// by design, so it has to be read from there.
+	password := writeOnlyString(ctx, req.Config, "password_wo", plan.Password, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	createReq := dataiku.CreateUserRequest{
 		Login:       login,
-		Password:    plan.Password.ValueString(),
+		Password:    password,
 		DisplayName: plan.DisplayName.ValueString(),
 		SourceType:  plan.SourceType.ValueString(),
 		Groups:      groups,
@@ -226,6 +273,13 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// The write-only password cannot be compared against prior state, since
+	// none is kept; its version marker is what signals a rotation.
+	passwordWO := writeOnlyString(ctx, req.Config, "password_wo", types.StringNull(), &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	rotateWriteOnly := passwordWO != "" && !plan.PasswordWOVersion.Equal(state.PasswordWOVersion)
 	passwordChanged := !plan.Password.Equal(state.Password) && !plan.Password.IsNull()
 
 	err := r.client.UpdateUser(ctx, login, func(u map[string]any) {
@@ -238,7 +292,10 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		u["enabled"] = plan.Enabled.ValueBool()
 		// DSS omits the password from GET, so only send it when it actually
 		// changed; sending an empty string would clear it.
-		if passwordChanged {
+		switch {
+		case rotateWriteOnly:
+			u["password"] = passwordWO
+		case passwordChanged:
 			u["password"] = plan.Password.ValueString()
 		}
 	})

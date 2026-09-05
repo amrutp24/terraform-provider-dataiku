@@ -4,9 +4,11 @@ resource "dataiku_user" "jsmith" {
   email        = "jsmith@example.com"
   user_profile = "FULL_DESIGNER"
 
-  # Keep the initial password out of configuration; supply it with
-  # TF_VAR_initial_password or from a secret manager.
-  password = var.initial_password
+  # password_wo is never written to plan or state, unlike password. Bump the
+  # version marker to rotate: the provider keeps nothing to compare against, so
+  # changing the secret alone would go unnoticed. Needs Terraform 1.11+.
+  password_wo         = var.initial_password
+  password_wo_version = "1"
 
   groups = [dataiku_group.data_scientists.name]
 }

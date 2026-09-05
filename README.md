@@ -9,7 +9,8 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 
 ## Requirements
 
-- Terraform 1.8 or later
+- Terraform 1.8 or later, or 1.11 for the write-only `_wo` arguments that keep
+  secrets out of state
 - A Dataiku DSS instance, and an API key for it. DSS must be licensed for the
   public REST API — the Free Edition is not, on its own.
 

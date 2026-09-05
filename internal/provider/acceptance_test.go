@@ -1069,3 +1069,170 @@ func envOrDefault(key, fallback string) string {
 	}
 	return fallback
 }
+
+// TestAccUserPasswordWriteOnly checks the property that makes write-only
+// arguments worth having: the secret reaches DSS but never reaches state.
+func TestAccUserPasswordWriteOnly(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+	profile, _ := testAccUserProfiles(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Write-only"
+  user_profile = %[2]q
+
+  password_wo         = "first-secret-value"
+  password_wo_version = "1"
+}
+`, login, profile),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_user.test", "id", login),
+					resource.TestCheckResourceAttr("dataiku_user.test", "password_wo_version", "1"),
+					// The whole point: neither the write-only value nor the
+					// legacy attribute may hold the secret.
+					resource.TestCheckNoResourceAttr("dataiku_user.test", "password_wo"),
+					resource.TestCheckNoResourceAttr("dataiku_user.test", "password"),
+					checkStateHasNoSecret("dataiku_user.test", "first-secret-value"),
+				),
+			},
+			{
+				// Rotating means changing the marker; the value alone leaves
+				// nothing for the provider to notice.
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Write-only"
+  user_profile = %[2]q
+
+  password_wo         = "second-secret-value"
+  password_wo_version = "2"
+}
+`, login, profile),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_user.test", "password_wo_version", "2"),
+					resource.TestCheckNoResourceAttr("dataiku_user.test", "password_wo"),
+					checkStateHasNoSecret("dataiku_user.test", "second-secret-value"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccUserRejectsBothPasswordForms(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login    = %[1]q
+  password = "plain"
+
+  password_wo         = "write-only"
+  password_wo_version = "1"
+}
+`, login),
+				ExpectError: regexp.MustCompile(`(?s)Invalid Attribute Combination`),
+			},
+		},
+	})
+}
+
+func TestAccUserWriteOnlyPasswordNeedsVersion(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Without the marker a rotation would silently never apply, so
+				// the combination is rejected rather than accepted quietly.
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login       = %[1]q
+  password_wo = "no-version-marker"
+}
+`, login),
+				ExpectError: regexp.MustCompile(`(?s)Invalid Attribute Combination`),
+			},
+		},
+	})
+}
+
+// TestAccConnectionParamsWriteOnly does the same for connection credentials,
+// and against a real database confirms the write-only parameters actually
+// arrive rather than merely being accepted.
+func TestAccConnectionParamsWriteOnly(t *testing.T) {
+	testAccSetup(t)
+	name := randName(t, "conn")
+
+	pgHost := os.Getenv("DATAIKU_TEST_PG_HOST")
+	checks := []resource.TestCheckFunc{
+		resource.TestCheckResourceAttr("dataiku_connection.test", "params_json_wo_version", "1"),
+		resource.TestCheckNoResourceAttr("dataiku_connection.test", "params_json_wo"),
+	}
+	if pgHost != "" {
+		checks = append(checks, checkConnectionReachesDatabase(name))
+	} else {
+		pgHost = "db.example.com"
+	}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_connection" "test" {
+  name = %[1]q
+  type = "PostgreSQL"
+
+  params_json_wo = jsonencode({
+    host     = %[2]q
+    port     = %[3]q
+    db       = %[4]q
+    user     = %[5]q
+    password = %[6]q
+  })
+  params_json_wo_version = "1"
+}
+`, name, pgHost,
+					envOrDefault("DATAIKU_TEST_PG_PORT", "5432"),
+					envOrDefault("DATAIKU_TEST_PG_DB", "probe"),
+					envOrDefault("DATAIKU_TEST_PG_USER", "dku"),
+					envOrDefault("DATAIKU_TEST_PG_PASSWORD", "probe-pw")),
+				Check: resource.ComposeAggregateTestCheckFunc(checks...),
+			},
+		},
+	})
+}
+
+// checkStateHasNoSecret scans every attribute the resource stored, rather than
+// one named attribute, and fails if the secret appears in any of them. That is
+// the property write-only arguments are supposed to guarantee, and a check on a
+// single attribute name would miss it leaking somewhere else.
+func checkStateHasNoSecret(resourceName, secret string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		rs, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("%s is not in state", resourceName)
+		}
+		for key, value := range rs.Primary.Attributes {
+			if strings.Contains(value, secret) {
+				return fmt.Errorf(
+					"the write-only secret leaked into state at %s.%s; write-only attributes must never be persisted",
+					resourceName, key)
+			}
+		}
+		return nil
+	}
+}

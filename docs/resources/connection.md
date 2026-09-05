@@ -22,13 +22,17 @@ resource "dataiku_connection" "warehouse" {
 
   description = "Analytics read replica"
 
-  params_json = jsonencode({
+  # params_json_wo keeps the credentials out of Terraform state. Bump the
+  # version marker when they change. Needs Terraform 1.11+; use params_json
+  # instead on older versions, accepting that it is persisted.
+  params_json_wo = jsonencode({
     host     = "db.example.com"
     port     = "5432"
     db       = "analytics"
     user     = "dataiku"
     password = var.warehouse_password
   })
+  params_json_wo_version = "1"
 
   usable_by      = "ALLOWED"
   allowed_groups = [dataiku_group.data_scientists.name]
@@ -60,9 +64,19 @@ Note that Amazon S3 connections use the type `EC2`, for historical reasons. Ther
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `allowed_groups` (List of String) Groups allowed to use the connection when `usable_by` is `ALLOWED`.
 - `description` (String) Description of the connection.
 - `params_json` (String, Sensitive) Type-specific connection parameters, as a JSON object. Use `jsonencode()` to build it. Because these commonly carry credentials, DSS redacts secret fields when reading a connection back; this provider therefore does not refresh `params_json` from the instance after it is set, and changes made in the DSS interface to parameters will not appear as drift. On `terraform import` the redacted parameters are read in once so you have a starting point to edit.
+
+**This value is stored in Terraform state.** Prefer `params_json_wo`, which is not.
+- `params_json_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The same as `params_json`, but never written to plan or state. Since connection parameters are usually the credentials for a database, this is the safer place to put them.
+
+Nothing is retained, so the provider cannot tell the parameters changed. Bump `params_json_wo_version` to make it send them again.
+
+Requires Terraform 1.11 or later. Conflicts with `params_json`.
+- `params_json_wo_version` (String) An arbitrary marker whose change tells the provider to send `params_json_wo` again. Required alongside it: without one, rotated credentials would never reach the instance.
 - `usable_by` (String) Who may use the connection. `ALL` for everyone, or `ALLOWED` to restrict it to `allowed_groups`.
 
 ### Read-Only

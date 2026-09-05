@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -15,15 +16,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/amrutp24/terraform-provider-dataiku/internal/dataiku"
 )
 
 var (
-	_ resource.Resource                = (*connectionResource)(nil)
-	_ resource.ResourceWithConfigure   = (*connectionResource)(nil)
-	_ resource.ResourceWithImportState = (*connectionResource)(nil)
+	_ resource.Resource                     = (*connectionResource)(nil)
+	_ resource.ResourceWithConfigure        = (*connectionResource)(nil)
+	_ resource.ResourceWithImportState      = (*connectionResource)(nil)
+	_ resource.ResourceWithConfigValidators = (*connectionResource)(nil)
 )
 
 // NewConnectionResource returns the dataiku_connection resource.
@@ -34,13 +37,15 @@ type connectionResource struct {
 }
 
 type connectionResourceModel struct {
-	ID            types.String         `tfsdk:"id"`
-	Name          types.String         `tfsdk:"name"`
-	Type          types.String         `tfsdk:"type"`
-	Description   types.String         `tfsdk:"description"`
-	ParamsJSON    jsontypes.Normalized `tfsdk:"params_json"`
-	UsableBy      types.String         `tfsdk:"usable_by"`
-	AllowedGroups types.List           `tfsdk:"allowed_groups"`
+	ID                  types.String         `tfsdk:"id"`
+	Name                types.String         `tfsdk:"name"`
+	Type                types.String         `tfsdk:"type"`
+	Description         types.String         `tfsdk:"description"`
+	ParamsJSON          jsontypes.Normalized `tfsdk:"params_json"`
+	ParamsJSONWO        jsontypes.Normalized `tfsdk:"params_json_wo"`
+	ParamsJSONWOVersion types.String         `tfsdk:"params_json_wo_version"`
+	UsableBy            types.String         `tfsdk:"usable_by"`
+	AllowedGroups       types.List           `tfsdk:"allowed_groups"`
 }
 
 func (r *connectionResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -102,7 +107,26 @@ func (r *connectionResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					"secret fields when reading a connection back; this provider therefore does not refresh " +
 					"`params_json` from the instance after it is set, and changes made in the DSS interface " +
 					"to parameters will not appear as drift. On `terraform import` the redacted parameters " +
-					"are read in once so you have a starting point to edit.",
+					"are read in once so you have a starting point to edit.\n\n" +
+					"**This value is stored in Terraform state.** Prefer `params_json_wo`, which is not.",
+			},
+			"params_json_wo": schema.StringAttribute{
+				Optional:   true,
+				Sensitive:  true,
+				WriteOnly:  true,
+				CustomType: jsontypes.NormalizedType{},
+				MarkdownDescription: "The same as `params_json`, but never written to plan or state. Since " +
+					"connection parameters are usually the credentials for a database, this is the safer " +
+					"place to put them.\n\n" +
+					"Nothing is retained, so the provider cannot tell the parameters changed. Bump " +
+					"`params_json_wo_version` to make it send them again.\n\n" +
+					"Requires Terraform 1.11 or later. Conflicts with `params_json`.",
+			},
+			"params_json_wo_version": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "An arbitrary marker whose change tells the provider to send " +
+					"`params_json_wo` again. Required alongside it: without one, rotated credentials would " +
+					"never reach the instance.",
 			},
 			"usable_by": schema.StringAttribute{
 				Optional:            true,
@@ -123,6 +147,23 @@ func (r *connectionResource) Schema(_ context.Context, _ resource.SchemaRequest,
 	}
 }
 
+func (r *connectionResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.Conflicting(
+			path.MatchRoot("params_json"),
+			path.MatchRoot("params_json_wo"),
+		),
+		resourcevalidator.RequiredTogether(
+			path.MatchRoot("params_json_wo"),
+			path.MatchRoot("params_json_wo_version"),
+		),
+		resourcevalidator.PreferWriteOnlyAttribute(
+			path.MatchRoot("params_json"),
+			path.MatchRoot("params_json_wo"),
+		),
+	}
+}
+
 func (r *connectionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFromResourceConfigure(req, &resp.Diagnostics)
 }
@@ -135,7 +176,7 @@ func (r *connectionResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	name := plan.Name.ValueString()
-	params := decodeParams(plan.ParamsJSON, &resp.Diagnostics)
+	params := decodeConnectionParams(ctx, req.Config, plan.ParamsJSON, &resp.Diagnostics)
 	allowedGroups := fromStringList(ctx, plan.AllowedGroups, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
@@ -192,19 +233,25 @@ func (r *connectionResource) Read(ctx context.Context, req resource.ReadRequest,
 }
 
 func (r *connectionResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan connectionResourceModel
+	var plan, state connectionResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	name := plan.Name.ValueString()
-	params := decodeParams(plan.ParamsJSON, &resp.Diagnostics)
+	params := decodeConnectionParams(ctx, req.Config, plan.ParamsJSON, &resp.Diagnostics)
 	allowedGroups := fromStringList(ctx, plan.AllowedGroups, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	paramsSet := !plan.ParamsJSON.IsNull() && !plan.ParamsJSON.IsUnknown()
+
+	// The write-only parameters leave no prior value to compare against, so
+	// their version marker is what signals a rotation.
+	rotateWriteOnly := !plan.ParamsJSONWOVersion.Equal(state.ParamsJSONWOVersion) &&
+		!plan.ParamsJSONWOVersion.IsNull()
+	paramsSet := (!plan.ParamsJSON.IsNull() && !plan.ParamsJSON.IsUnknown()) || rotateWriteOnly
 
 	err := r.client.UpdateConnection(ctx, name, func(c map[string]any) {
 		c["description"] = plan.Description.ValueString()
@@ -318,4 +365,19 @@ func decodeParams(value jsontypes.Normalized, diags *diag.Diagnostics) map[strin
 		return nil
 	}
 	return params
+}
+
+// decodeConnectionParams prefers the write-only parameters when configuration
+// supplies them, falling back to the plain attribute. The write-only value is
+// absent from the plan by design, so it is read from configuration.
+func decodeConnectionParams(ctx context.Context, config tfsdk.Config, plain jsontypes.Normalized, diags *diag.Diagnostics) map[string]any {
+	var wo jsontypes.Normalized
+	diags.Append(config.GetAttribute(ctx, path.Root("params_json_wo"), &wo)...)
+	if diags.HasError() {
+		return nil
+	}
+	if !wo.IsNull() && !wo.IsUnknown() {
+		return decodeParams(wo, diags)
+	}
+	return decodeParams(plain, diags)
 }

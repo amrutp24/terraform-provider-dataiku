@@ -8,6 +8,10 @@ All notable changes to this provider are documented here. The format follows
 
 ### Added
 
+- Write-only arguments `password_wo` on `dataiku_user` and `params_json_wo` on
+  `dataiku_connection`, each with a `_wo_version` marker to trigger rotation.
+  These are never written to plan or state. They need Terraform 1.11 or later,
+  and conflict with the persisted attributes they replace.
 - `TestAccConnectionReachesDatabase`, which asks DSS to dial the database a
   connection describes rather than only checking that DSS accepted the
   document. It needs a reachable database, so it skips unless
