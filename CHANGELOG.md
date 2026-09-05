@@ -6,6 +6,8 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-05
+
 ### Added
 
 - Write-only arguments `password_wo` on `dataiku_user` and `params_json_wo` on
