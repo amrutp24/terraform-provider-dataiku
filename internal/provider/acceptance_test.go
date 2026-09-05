@@ -640,3 +640,63 @@ func checkListContains(resourceName, attribute, want string) resource.TestCheckF
 		return fmt.Errorf("%s.%s does not contain %q; it holds %v", resourceName, attribute, want, found)
 	}
 }
+
+func TestAccCodeEnv(t *testing.T) {
+	testAccSetup(t)
+	name := randName(t, "env")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// install_packages_on_change is off throughout: resolving
+				// packages runs pip on the instance and would make this test
+				// depend on a package index being reachable.
+				Config: fmt.Sprintf(`
+resource "dataiku_code_env" "test" {
+  name = %[1]q
+  lang = "PYTHON"
+
+  packages                   = "scikit-learn==1.5.0"
+  install_packages_on_change = false
+}
+`, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "id", "PYTHON/"+name),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "name", name),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "lang", "PYTHON"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "deployment_mode", "DESIGN_MANAGED"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "packages", "scikit-learn==1.5.0"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "conda", "false"),
+					resource.TestCheckResourceAttrSet("dataiku_code_env.test", "python_interpreter"),
+				),
+			},
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_code_env" "test" {
+  name = %[1]q
+  lang = "PYTHON"
+
+  packages                   = "scikit-learn==1.5.0\npandas==2.2.2"
+  install_jupyter_support    = true
+  usable_by_all              = false
+  install_packages_on_change = false
+}
+`, name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "packages", "scikit-learn==1.5.0\npandas==2.2.2"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "install_jupyter_support", "true"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "usable_by_all", "false"),
+				),
+			},
+			{
+				ResourceName:      "dataiku_code_env.test",
+				ImportState:       true,
+				ImportStateId:     "PYTHON/" + name,
+				ImportStateVerify: true,
+				// Terraform-local only; the instance stores nothing for it.
+				ImportStateVerifyIgnore: []string{"install_packages_on_change"},
+			},
+		},
+	})
+}

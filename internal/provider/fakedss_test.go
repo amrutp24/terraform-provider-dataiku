@@ -22,6 +22,7 @@ type fakeDSS struct {
 	groups      map[string]map[string]any
 	users       map[string]map[string]any
 	connections map[string]map[string]any
+	codeEnvs    map[string]map[string]any
 
 	// unmodelledFieldDropped records whether an update ever wrote back a
 	// document that lost a field the provider does not model.
@@ -38,6 +39,7 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 		groups:      map[string]map[string]any{},
 		users:       map[string]map[string]any{},
 		connections: map[string]map[string]any{},
+		codeEnvs:    map[string]map[string]any{},
 	}
 
 	server := httptest.NewServer(f.handler())
@@ -52,6 +54,7 @@ func (f *fakeDSS) handler() http.Handler {
 	mux.HandleFunc("/public/api/admin/groups/", f.handleGroups)
 	mux.HandleFunc("/public/api/admin/users/", f.handleUsers)
 	mux.HandleFunc("/public/api/admin/connections/", f.handleConnections)
+	mux.HandleFunc("/public/api/admin/code-envs/", f.handleCodeEnvs)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "unhandled "+r.Method+" "+r.URL.Path)
 	})
@@ -411,4 +414,87 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// handleCodeEnvs mirrors how DSS stores a code environment: most settings live
+// under "desc", and a few are mirrored at the top level.
+func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/public/api/admin/code-envs/")
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if rest == "" {
+		out := []any{}
+		for _, e := range f.codeEnvs {
+			out = append(out, e)
+		}
+		writeJSON(w, out)
+		return
+	}
+
+	lang, remainder := splitFirst(strings.TrimSuffix(rest, "/"))
+	name, sub := splitFirst(remainder)
+	key := lang + "/" + name
+
+	if sub == "packages" && r.Method == http.MethodPost {
+		if _, ok := f.codeEnvs[key]; !ok {
+			writeErr(w, http.StatusNotFound, "No such code env: "+key)
+			return
+		}
+		writeJSON(w, map[string]any{"messages": map[string]any{"error": false, "messages": []any{}}})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		var body map[string]any
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		interpreter, _ := body["pythonInterpreter"].(string)
+		if interpreter == "" {
+			interpreter = "PYTHON39"
+		}
+		f.codeEnvs[key] = map[string]any{
+			"envName":         name,
+			"envLang":         lang,
+			"deploymentMode":  body["deploymentMode"],
+			"specPackageList": "",
+			"usableByAll":     true,
+			"desc": map[string]any{
+				"pythonInterpreter":     interpreter,
+				"conda":                 body["conda"] == true,
+				"deploymentMode":        body["deploymentMode"],
+				"installCorePackages":   false,
+				"corePackagesSet":       "PANDAS23",
+				"installJupyterSupport": false,
+				"usableByAll":           true,
+			},
+		}
+		writeJSON(w, map[string]any{"envName": name})
+	case http.MethodGet:
+		env, ok := f.codeEnvs[key]
+		if !ok {
+			writeErr(w, http.StatusNotFound, "No such code env: "+key)
+			return
+		}
+		writeJSON(w, env)
+	case http.MethodPut:
+		if _, ok := f.codeEnvs[key]; !ok {
+			writeErr(w, http.StatusNotFound, "No such code env: "+key)
+			return
+		}
+		var body map[string]any
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		f.codeEnvs[key] = body
+		w.WriteHeader(http.StatusOK)
+	case http.MethodDelete:
+		delete(f.codeEnvs, key)
+		writeJSON(w, map[string]any{"messages": map[string]any{"error": false}})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "bad method")
+	}
 }

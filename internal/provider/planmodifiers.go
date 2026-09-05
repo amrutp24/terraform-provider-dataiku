@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 )
 
@@ -65,4 +66,10 @@ func canonicalJSON(s string) (string, bool) {
 		return "", false
 	}
 	return string(encoded), true
+}
+
+// boolRequiresReplace is the bool counterpart of stringplanmodifier.RequiresReplace,
+// named here so the resource schemas read the same way for both types.
+func boolRequiresReplace() planmodifier.Bool {
+	return boolplanmodifier.RequiresReplace()
 }

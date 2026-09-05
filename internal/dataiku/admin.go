@@ -190,3 +190,76 @@ func (c *Client) UpdateConnection(ctx context.Context, name string, mutate func(
 func (c *Client) DeleteConnection(ctx context.Context, name string) error {
 	return c.delete(ctx, "/admin/connections/"+url.PathEscape(name), nil)
 }
+
+// ---------------------------------------------------------------------------
+// Code environments
+// ---------------------------------------------------------------------------
+
+// CodeEnvListItem is one entry of GET /admin/code-envs/.
+type CodeEnvListItem struct {
+	EnvName        string `json:"envName"`
+	EnvLang        string `json:"envLang"`
+	DeploymentMode string `json:"deploymentMode"`
+	IsUpToDate     bool   `json:"isUptodate"`
+}
+
+// CreateCodeEnvRequest is the body of POST /admin/code-envs/{lang}/{name}.
+type CreateCodeEnvRequest struct {
+	DeploymentMode    string `json:"deploymentMode"`
+	PythonInterpreter string `json:"pythonInterpreter,omitempty"`
+	Conda             bool   `json:"conda,omitempty"`
+}
+
+func codeEnvPath(lang, name string) string {
+	return "/admin/code-envs/" + url.PathEscape(lang) + "/" + url.PathEscape(name)
+}
+
+// ListCodeEnvs returns every code environment on the instance.
+func (c *Client) ListCodeEnvs(ctx context.Context) ([]CodeEnvListItem, error) {
+	var out []CodeEnvListItem
+	if err := c.get(ctx, "/admin/code-envs/", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateCodeEnv creates a code environment. Creation only registers the
+// environment; packages are installed by UpdateCodeEnvPackages.
+func (c *Client) CreateCodeEnv(ctx context.Context, lang, name string, req CreateCodeEnvRequest) error {
+	return c.post(ctx, codeEnvPath(lang, name), nil, req, nil)
+}
+
+// GetCodeEnv returns a code environment's raw settings document.
+func (c *Client) GetCodeEnv(ctx context.Context, lang, name string) (map[string]any, error) {
+	out := map[string]any{}
+	if err := c.get(ctx, codeEnvPath(lang, name), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateCodeEnv read-modify-writes a code environment's settings.
+func (c *Client) UpdateCodeEnv(ctx context.Context, lang, name string, mutate func(map[string]any)) error {
+	current, err := c.GetCodeEnv(ctx, lang, name)
+	if err != nil {
+		return err
+	}
+	mutate(current)
+	return c.put(ctx, codeEnvPath(lang, name), nil, current, nil)
+}
+
+// UpdateCodeEnvPackages resolves and installs the environment's packages. This
+// is the slow call: DSS runs pip or conda, so it needs network access on the
+// instance and can take minutes.
+func (c *Client) UpdateCodeEnvPackages(ctx context.Context, lang, name string) (map[string]any, error) {
+	out := map[string]any{}
+	if err := c.post(ctx, codeEnvPath(lang, name)+"/packages", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteCodeEnv removes a code environment.
+func (c *Client) DeleteCodeEnv(ctx context.Context, lang, name string) error {
+	return c.delete(ctx, codeEnvPath(lang, name), nil)
+}

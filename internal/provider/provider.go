@@ -191,6 +191,7 @@ func (p *dataikuProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewUserResource,
 		NewGroupResource,
 		NewConnectionResource,
+		NewCodeEnvResource,
 	}
 }
 
