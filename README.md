@@ -7,6 +7,12 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 > not provision the instance itself — for that, use the cloud provider of your
 > choice or Dataiku Fleet Manager.
 
+## Requirements
+
+- Terraform 1.8 or later
+- A Dataiku DSS instance, and an API key for it. DSS must be licensed for the
+  public REST API — the Free Edition is not, on its own.
+
 ## Contents
 
 | Resources | Data sources |
@@ -197,46 +203,9 @@ make testacc
 
 They are skipped unless `TF_ACC=1` is set, which `make testacc` does for you.
 
-## Publishing to the Terraform Registry
+## Contributing
 
-The repository is already set up for the registry: `.goreleaser.yml`,
-`.github/workflows/release.yml` and `terraform-registry-manifest.json` follow
-HashiCorp's scaffolding, and the manifest declares protocol `6.0` because this is
-a Plugin Framework provider.
-
-The provider address is `registry.terraform.io/amrutp24/dataiku`, set in the Go
-module path and in `main.go`. If you publish under a different account or an
-organization, change it in both places and re-run `go mod tidy && make docs`.
-
-1. Push the code to a **public** GitHub repository named
-   `terraform-provider-dataiku`. The name matters: the registry derives the
-   provider name from it.
-
-   ```bash
-   gh repo create amrutp24/terraform-provider-dataiku --public --source=. --remote=origin --push
-   ```
-2. Generate an RSA or DSA GPG key (ECC is not supported) and add the
-   ASCII-armored public key at
-   [registry.terraform.io/settings/gpg-keys](https://registry.terraform.io/settings/gpg-keys).
-3. Add the private key and its passphrase as the repository secrets
-   `GPG_PRIVATE_KEY` and `PASSPHRASE`.
-4. Tag a semver release and push it — the release workflow builds every
-   OS/arch, signs the checksums, and attaches the assets:
-
-   ```bash
-   git tag v0.1.0 && git push origin v0.1.0
-   ```
-
-5. Sign in at [registry.terraform.io](https://registry.terraform.io) with the
-   GitHub account that has admin on the repository, then go to
-   **Publish → Provider** and select it. The registry installs a webhook, so
-   later tags publish on their own.
-
-Preview how `docs/` will render with the
-[registry doc preview tool](https://registry.terraform.io/tools/doc-preview).
-
-Until it is published, you can consume the provider from a local filesystem
-mirror or the dev override shown above.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
