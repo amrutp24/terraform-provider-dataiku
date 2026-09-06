@@ -103,6 +103,34 @@ func fromStringList(ctx context.Context, list types.List, diags *diag.Diagnostic
 	return out
 }
 
+// toStringSet converts a Go slice into a framework set.
+//
+// Tags are sets, not lists. DSS returns them in its own order rather than the
+// order they were configured in, and a list attribute makes that a hard error:
+// configuring ["terraform", "smoke-test"] and reading back ["smoke-test",
+// "terraform"] fails apply with "Provider produced inconsistent result after
+// apply ... .tags[0]: was terraform, but now smoke-test". A set has no
+// positions to disagree about.
+func toStringSet(ctx context.Context, values []string, diags *diag.Diagnostics) types.Set {
+	if values == nil {
+		values = []string{}
+	}
+	set, d := types.SetValueFrom(ctx, types.StringType, values)
+	diags.Append(d...)
+	return set
+}
+
+// fromStringSet converts a framework set into a Go slice. A null or unknown set
+// becomes an empty slice.
+func fromStringSet(ctx context.Context, set types.Set, diags *diag.Diagnostics) []string {
+	if set.IsNull() || set.IsUnknown() {
+		return []string{}
+	}
+	out := []string{}
+	diags.Append(set.ElementsAs(ctx, &out, false)...)
+	return out
+}
+
 // nullIfEmpty keeps optional string attributes null when DSS returns "", so
 // that omitting them in configuration does not read back as perpetual drift.
 func nullIfEmpty(s string) types.String {

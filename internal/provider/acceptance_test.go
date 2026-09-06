@@ -92,7 +92,9 @@ resource "dataiku_project" "test" {
   name        = "Acceptance test"
   owner       = "admin"
   short_desc  = "first"
-  tags        = ["a", "b"]
+  # Deliberately not alphabetical. DSS sorts tags, so an ordered list model
+  # fails here with ".tags[0]: was zulu, but now alpha".
+  tags        = ["zulu", "alpha"]
 }
 `, key),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -102,7 +104,8 @@ resource "dataiku_project" "test" {
 					resource.TestCheckResourceAttr("dataiku_project.test", "owner", "admin"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "short_desc", "first"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "tags.#", "2"),
-					resource.TestCheckResourceAttr("dataiku_project.test", "tags.0", "a"),
+					resource.TestCheckTypeSetElemAttr("dataiku_project.test", "tags.*", "zulu"),
+					resource.TestCheckTypeSetElemAttr("dataiku_project.test", "tags.*", "alpha"),
 					// Delete options fall back to their documented defaults.
 					resource.TestCheckResourceAttr("dataiku_project.test", "clear_managed_datasets_on_delete", "false"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "clear_job_and_scenario_logs_on_delete", "true"),
@@ -125,7 +128,7 @@ resource "dataiku_project" "test" {
 					resource.TestCheckResourceAttr("dataiku_project.test", "short_desc", "second"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "description", "A longer description"),
 					resource.TestCheckResourceAttr("dataiku_project.test", "tags.#", "1"),
-					resource.TestCheckResourceAttr("dataiku_project.test", "tags.0", "c"),
+					resource.TestCheckTypeSetElemAttr("dataiku_project.test", "tags.*", "c"),
 				),
 			},
 			{
@@ -906,7 +909,7 @@ resource "dataiku_scenario" "test" {
 					resource.TestCheckResourceAttr("dataiku_scenario.test", "scenario_id", "Nightly_build"),
 					resource.TestCheckResourceAttr("dataiku_scenario.test", "name", "Nightly build (renamed)"),
 					resource.TestCheckResourceAttr("dataiku_scenario.test", "active", "true"),
-					resource.TestCheckResourceAttr("dataiku_scenario.test", "tags.0", "managed-by-terraform"),
+					resource.TestCheckTypeSetElemAttr("dataiku_scenario.test", "tags.*", "managed-by-terraform"),
 				),
 			},
 			{

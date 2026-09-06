@@ -43,7 +43,7 @@ type projectResourceModel struct {
 	Owner           types.String `tfsdk:"owner"`
 	Description     types.String `tfsdk:"description"`
 	ShortDesc       types.String `tfsdk:"short_desc"`
-	Tags            types.List   `tfsdk:"tags"`
+	Tags            types.Set    `tfsdk:"tags"`
 	ProjectFolderID types.String `tfsdk:"project_folder_id"`
 
 	ClearManagedDatasetsOnDelete      types.Bool `tfsdk:"clear_managed_datasets_on_delete"`
@@ -57,6 +57,8 @@ func (r *projectResource) Metadata(_ context.Context, req resource.MetadataReque
 
 func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		// 1: tags became a set. See UpgradeState below.
+		Version: 1,
 		MarkdownDescription: "A Dataiku DSS project.\n\n" +
 			"Deleting this resource permanently deletes the project on the instance. " +
 			"Use the `clear_*_on_delete` arguments to control what data DSS removes along with it.",
@@ -97,11 +99,13 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Optional:            true,
 				MarkdownDescription: "Short description of the project, shown on the project tile.",
 			},
-			"tags": schema.ListAttribute{
-				Optional:            true,
-				Computed:            true,
-				ElementType:         types.StringType,
-				MarkdownDescription: "Tags applied to the project.",
+			"tags": schema.SetAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				MarkdownDescription: "Tags applied to the project.\n\n" +
+					"A set, not a list: DSS stores tags unordered and hands them back in its own " +
+					"order, so the order written here is not preserved and duplicates collapse.",
 			},
 			"project_folder_id": schema.StringAttribute{
 				Optional: true,
@@ -152,7 +156,7 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 		Name:            plan.Name.ValueString(),
 		Owner:           plan.Owner.ValueString(),
 		Description:     plan.Description.ValueString(),
-		Tags:            fromStringList(ctx, plan.Tags, &resp.Diagnostics),
+		Tags:            fromStringSet(ctx, plan.Tags, &resp.Diagnostics),
 		ProjectFolderID: plan.ProjectFolderID.ValueString(),
 	}
 	if resp.Diagnostics.HasError() {
@@ -222,7 +226,7 @@ func (r *projectResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 
 	projectKey := plan.ProjectKey.ValueString()
-	tags := fromStringList(ctx, plan.Tags, &resp.Diagnostics)
+	tags := fromStringSet(ctx, plan.Tags, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -329,6 +333,6 @@ func (r *projectResource) readInto(ctx context.Context, projectKey string, model
 	model.Owner = types.StringValue(perms.Owner)
 	model.Description = nullIfEmpty(stringFromMap(metadata, "description"))
 	model.ShortDesc = nullIfEmpty(stringFromMap(metadata, "shortDesc"))
-	model.Tags = toStringList(ctx, stringSliceFromMap(metadata, "tags"), &diags)
+	model.Tags = toStringSet(ctx, stringSliceFromMap(metadata, "tags"), &diags)
 	return true, diags
 }

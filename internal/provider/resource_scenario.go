@@ -42,7 +42,7 @@ type scenarioResourceModel struct {
 	Name          types.String         `tfsdk:"name"`
 	Type          types.String         `tfsdk:"type"`
 	Active        types.Bool           `tfsdk:"active"`
-	Tags          types.List           `tfsdk:"tags"`
+	Tags          types.Set            `tfsdk:"tags"`
 	TriggersJSON  jsontypes.Normalized `tfsdk:"triggers_json"`
 	StepsJSON     jsontypes.Normalized `tfsdk:"steps_json"`
 	ReportersJSON jsontypes.Normalized `tfsdk:"reporters_json"`
@@ -55,6 +55,8 @@ func (r *scenarioResource) Metadata(_ context.Context, req resource.MetadataRequ
 
 func (r *scenarioResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		// 1: tags became a set. See UpgradeState below.
+		Version: 1,
 		MarkdownDescription: "A scenario in a Dataiku DSS project: what runs, and what makes it run.\n\n" +
 			"Triggers, steps and reporters are supplied as JSON rather than as typed blocks. Their shape " +
 			"varies by trigger and step type and between DSS versions, and DSS rewrites what you send — " +
@@ -113,11 +115,13 @@ func (r *scenarioResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Default:             booldefault.StaticBool(false),
 				MarkdownDescription: "Whether the scenario's triggers are armed. A scenario with `active = false` only runs when started by hand.",
 			},
-			"tags": schema.ListAttribute{
-				Optional:            true,
-				Computed:            true,
-				ElementType:         types.StringType,
-				MarkdownDescription: "Tags applied to the scenario.",
+			"tags": schema.SetAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				MarkdownDescription: "Tags applied to the scenario.\n\n" +
+					"A set, not a list: DSS stores tags unordered and hands them back in its own " +
+					"order, so the order written here is not preserved and duplicates collapse.",
 			},
 			"triggers_json": schema.StringAttribute{
 				Optional: true,
@@ -380,7 +384,7 @@ func (r *scenarioResource) readInto(ctx context.Context, projectKey, scenarioID 
 	model.Name = types.StringValue(stringFromMap(scenario, "name"))
 	model.Type = types.StringValue(stringFromMap(scenario, "type"))
 	model.Active = types.BoolValue(boolFromMap(scenario, "active"))
-	model.Tags = toStringList(ctx, stringSliceFromMap(scenario, "tags"), &diags)
+	model.Tags = toStringSet(ctx, stringSliceFromMap(scenario, "tags"), &diags)
 
 	// On import there is nothing configured to preserve, so adopt what the
 	// instance has as a starting point.

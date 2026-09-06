@@ -6,6 +6,39 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-06
+
+### Fixed
+
+- `tags` on `dataiku_project` and `dataiku_scenario` is a set rather than a
+  list. DSS stores tags unordered and returns them sorted, so configuring
+  `["terraform", "smoke-test"]` against a real instance failed the apply
+  outright:
+
+  ```
+  Error: Provider produced inconsistent result after apply
+  .tags[0]: was cty.StringVal("terraform"), but now cty.StringVal("smoke-test")
+  ```
+
+  Terraform requires a provider to return what it planned, element by element,
+  and a list has positions to disagree about. A set does not. Any two tags in
+  non-alphabetical order hit this, which made the attribute close to unusable.
+
+  The tests missed it because they used `["a", "b"]`, already in the order DSS
+  returns, and the fake instance stored tags verbatim instead of sorting them
+  the way a real one does. The fake now sorts, and the test writes its tags
+  deliberately out of order.
+
+### Changed
+
+- Schema version 1 for both resources, with state upgraders. State written by
+  0.3.0 and earlier holds tags as a list; the upgraders convert it, so an
+  existing configuration plans without manual intervention.
+
+- `tags` on the data sources stays a list. Data sources are read fresh on every
+  plan and never subject to the consistency check above, and changing the type
+  would break configurations that index into the result.
+
 ## [0.3.0] - 2026-09-06
 
 No change to the provider itself. The binary is identical to 0.2.0; this

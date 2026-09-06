@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -90,10 +91,7 @@ func (f *fakeDSS) handleProjects(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			key, _ := body["projectKey"].(string)
-			tags, _ := body["tags"].([]any)
-			if tags == nil {
-				tags = []any{}
-			}
+			tags := sortedTags(body["tags"])
 			f.projects[key] = map[string]any{
 				"label":       body["name"],
 				"description": orEmpty(body["description"]),
@@ -141,6 +139,7 @@ func (f *fakeDSS) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if _, ok := body["checklists"]; !ok {
 			f.unmodelledFieldDropped = true
 		}
+		body["tags"] = sortedTags(body["tags"])
 		f.projects[key] = body
 		w.WriteHeader(http.StatusOK)
 	case sub == "permissions" && r.Method == http.MethodGet:
@@ -403,6 +402,37 @@ func orEmpty(v any) any {
 	return v
 }
 
+// sortedTags mimics DSS, which stores tags as a set and hands them back in its
+// own order rather than the order they were written in. Returning them verbatim
+// let a real bug through: tags were modelled as an ordered list, so configuring
+// ["terraform", "smoke-test"] against a real instance failed apply with
+// ".tags[0]: was terraform, but now smoke-test". Sorting here means the fake
+// disagrees about order the same way a real instance does.
+func sortedTags(v any) []any {
+	raw, _ := v.([]any)
+	if raw == nil {
+		return []any{}
+	}
+
+	strs := make([]string, 0, len(raw))
+	for _, item := range raw {
+		s, ok := item.(string)
+		if !ok {
+			// Not a string, so not something DSS would sort; hand it all back
+			// untouched rather than guessing.
+			return raw
+		}
+		strs = append(strs, s)
+	}
+	sort.Strings(strs)
+
+	out := make([]any, len(strs))
+	for i, s := range strs {
+		out[i] = s
+	}
+	return out
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
@@ -599,6 +629,7 @@ func (f *fakeDSS) handleScenarios(w http.ResponseWriter, r *http.Request, projec
 		if _, ok := body["checklists"]; !ok {
 			f.unmodelledFieldDropped = true
 		}
+		body["tags"] = sortedTags(body["tags"])
 		f.scenarios[scenarioKey] = body
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:

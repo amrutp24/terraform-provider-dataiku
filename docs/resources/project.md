@@ -56,7 +56,9 @@ resource "dataiku_project" "scratch" {
 - `description` (String) Long description of the project, shown on the project home page.
 - `project_folder_id` (String) ID of the project folder to create the project in. Defaults to the root folder. DSS does not report a project's folder through the public API, so this value is only applied at creation and is not refreshed. Changing it forces a new project.
 - `short_desc` (String) Short description of the project, shown on the project tile.
-- `tags` (List of String) Tags applied to the project.
+- `tags` (Set of String) Tags applied to the project.
+
+A set, not a list: DSS stores tags unordered and hands them back in its own order, so the order written here is not preserved and duplicates collapse.
 
 ### Read-Only
 

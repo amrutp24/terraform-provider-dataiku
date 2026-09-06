@@ -85,7 +85,9 @@ resource "dataiku_scenario" "scripted" {
 - `reporters_json` (String, Sensitive) Reporters, as a JSON array — what DSS notifies when the scenario finishes. Written but never read back. May carry webhook URLs and credentials, so it is treated as sensitive.
 - `script` (String) Python source for a `custom_python` scenario. Ignored for `step_based`. Unlike the JSON attributes this is stored verbatim by DSS, so it is read back and does show drift.
 - `steps_json` (String) Steps, as a JSON array, for a `step_based` scenario. This becomes `params.steps` in the DSS definition. Written but never read back.
-- `tags` (List of String) Tags applied to the scenario.
+- `tags` (Set of String) Tags applied to the scenario.
+
+A set, not a list: DSS stores tags unordered and hands them back in its own order, so the order written here is not preserved and duplicates collapse.
 - `triggers_json` (String) Triggers, as a JSON array. Written but never read back; see the note above.
 
 ```
