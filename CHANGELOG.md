@@ -6,6 +6,22 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The modules that stand up an instance now live in their own repositories, so
+  the Terraform Registry can list them: it derives a module address from the
+  repository name, and this one is a provider. `dss-platform` stays here.
+
+  | Was | Now |
+  | --- | --- |
+  | `modules/dss-aws` | [`amrutp24/dss/aws`](https://github.com/amrutp24/terraform-aws-dss) |
+  | `modules/dss-gcp` | [`amrutp24/dss/google`](https://github.com/amrutp24/terraform-google-dss) |
+  | `modules/dss-azure` | [`amrutp24/dss/azurerm`](https://github.com/amrutp24/terraform-azurerm-dss) |
+  | `modules/dss-bootstrap` | [`amrutp24/dss-bootstrap/null`](https://github.com/amrutp24/terraform-null-dss-bootstrap) |
+
+  The install script had been copied into each cloud module. It now has one
+  home, which the three depend on by tag.
+
 ### Added
 
 - Root configurations under `examples/provisioning` that stand up DSS on AWS,

@@ -10,10 +10,14 @@ root configuration you can `terraform apply` directly, not a module to wire up.
 | [`gcp/`](gcp) | Firewall rules and a Compute Engine instance | GCP project with billing |
 | [`azure/`](azure) | Resource group, network, NSG and a Linux VM | Azure subscription |
 
-The three cloud configurations differ only in their platform's resources. They
-install DSS the same way, through
-[`modules/dss-bootstrap`](../../modules/dss-bootstrap), which renders the
-install script — one copy to keep correct rather than three that drift.
+The three cloud configurations call modules published separately —
+[`amrutp24/dss/aws`](https://github.com/amrutp24/terraform-aws-dss),
+[`amrutp24/dss/google`](https://github.com/amrutp24/terraform-google-dss) and
+[`amrutp24/dss/azurerm`](https://github.com/amrutp24/terraform-azurerm-dss).
+They install DSS the same way, through
+[`amrutp24/dss-bootstrap/null`](https://github.com/amrutp24/terraform-null-dss-bootstrap),
+which renders the install script: one copy to keep correct rather than three
+that drift.
 
 ## Two applies, not one
 

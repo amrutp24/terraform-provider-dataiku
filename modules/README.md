@@ -1,37 +1,27 @@
 # Modules
 
-Four modules, in two layers.
+One module lives here. The ones that stand up an instance live in their own
+repositories, because the Terraform Registry derives a module's address from its
+repository name — `terraform-<PROVIDER>-<NAME>` — and this repository is a
+provider.
 
-```
-                    layer one: an instance exists
-  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐
-  │   dss-aws     │  │    dss-gcp    │  │    dss-azure    │
-  └───────┬───────┘  └───────┬───────┘  └────────┬────────┘
-          └──────────────────┼───────────────────┘
-                     ┌───────▼────────┐
-                     │ dss-bootstrap  │  renders the install script
-                     └────────────────┘
-
-                    ─── separate apply ───
-
-                    layer two: what is inside it
-                     ┌────────────────┐
-                     │  dss-platform  │  groups, code envs, projects
-                     └────────────────┘
-```
+## In this repository
 
 | Module | Creates | Provider the caller configures |
 | --- | --- | --- |
-| [`dss-aws`](dss-aws) | Security group, EC2 instance | `aws` |
-| [`dss-gcp`](dss-gcp) | Firewall rules, Compute Engine instance | `google` |
-| [`dss-azure`](dss-azure) | Resource group, network, NSG, Linux VM | `azurerm` |
-| [`dss-bootstrap`](dss-bootstrap) | Nothing — renders the install script | none |
 | [`dss-platform`](dss-platform) | Groups, code environments, projects, permissions | `dataiku` |
 
-None of them declares a `provider` block. That is deliberate: a module with its
-own provider configuration cannot be used twice against different targets, and
-Terraform warns about it. The caller configures the provider and the module
-inherits it.
+## Published separately
+
+| Module | Repository | Creates |
+| --- | --- | --- |
+| `amrutp24/dss/aws` | [terraform-aws-dss](https://github.com/amrutp24/terraform-aws-dss) | Security group, EC2 instance |
+| `amrutp24/dss/google` | [terraform-google-dss](https://github.com/amrutp24/terraform-google-dss) | Firewall rules, Compute Engine instance |
+| `amrutp24/dss/azurerm` | [terraform-azurerm-dss](https://github.com/amrutp24/terraform-azurerm-dss) | Resource group, network, NSG, Linux VM |
+| `amrutp24/dss-bootstrap/null` | [terraform-null-dss-bootstrap](https://github.com/amrutp24/terraform-null-dss-bootstrap) | Nothing — renders the install script the three share |
+
+They used to be copied in here as well. Two copies of a module are two things to
+keep correct, and the second one is always the one nobody remembers to change.
 
 ## Why the two layers cannot be one apply
 
@@ -48,16 +38,16 @@ reads layer one's outputs — through a remote state data source, a variable, or
 whatever your setup prefers:
 
 ```hcl
-# layer one
+# layer one: the instance
 module "dss" {
-  source              = "github.com/amrutp24/terraform-provider-dataiku//modules/dss-aws"
-  region              = "eu-west-1"
+  source              = "amrutp24/dss/aws"
+  version             = "~> 0.1"
   allowed_cidr_blocks = ["203.0.113.0/24"]
 }
 ```
 
 ```hcl
-# layer two, applied once the instance answers
+# layer two: what is inside it, applied once the instance answers
 provider "dataiku" {
   host = var.dss_url # from layer one's output
 }
@@ -79,7 +69,7 @@ result to `/var/lib/dataiku-terraform-key.json`, mode 0600.
 
 Moving it from there is the one genuinely platform-specific step — a cloud
 secret manager is cleanest, since nothing sensitive passes through Terraform
-state. [`dss-bootstrap`](dss-bootstrap) covers the options.
+state. Each cloud module's README covers the options for its platform.
 
 ## Working examples
 

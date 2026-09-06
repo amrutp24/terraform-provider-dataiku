@@ -5,9 +5,12 @@ The platform is incidental: replace `docker_container.dss` with a GCE instance,
 an EC2 instance, or a host you already own, and everything under *layer 2* is
 unchanged.
 
-For a VM rather than a container, use
-[`modules/dss-bootstrap`](../../../modules/dss-bootstrap) to render the install
-script and hand it to that platform's user-data.
+For a VM rather than a container, use one of the published cloud modules —
+[aws](https://github.com/amrutp24/terraform-aws-dss),
+[google](https://github.com/amrutp24/terraform-google-dss),
+[azurerm](https://github.com/amrutp24/terraform-azurerm-dss) — or
+[`amrutp24/dss-bootstrap/null`](https://github.com/amrutp24/terraform-null-dss-bootstrap)
+directly if your target is not among them.
 
 ## Why two applies
 

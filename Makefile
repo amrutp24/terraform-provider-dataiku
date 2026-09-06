@@ -13,14 +13,8 @@ install:
 	go install -ldflags "-X main.version=$(VERSION)" .
 
 .PHONY: test
-test: test-module
+test:
 	go test -cover -race ./...
-
-# The bootstrap module creates nothing, so its tests are plan-time assertions
-# on the rendered script: no credentials, no cloud, a couple of seconds.
-.PHONY: test-module
-test-module:
-	cd modules/dss-bootstrap && terraform init -backend=false >/dev/null && terraform test
 
 # Acceptance tests create and delete real objects on the instance named by
 # DATAIKU_HOST. Never point them at production.

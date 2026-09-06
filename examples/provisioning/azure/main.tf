@@ -18,7 +18,7 @@ provider "azurerm" {
 }
 
 module "dss" {
-  source = "../../../modules/dss-azure"
+  source = "github.com/amrutp24/terraform-azurerm-dss?ref=v0.1.1"
 
   location            = var.location
   allowed_cidr_blocks = var.allowed_cidr_blocks

@@ -77,11 +77,20 @@ This provider configures a DSS instance that already exists. Creating the
 instance is a separate layer, and a separate tool: Terraform providers do not
 provision generic compute.
 
-[`modules/dss-bootstrap`](modules/dss-bootstrap) covers that half. It renders
-the DSS install script and creates nothing itself, so the same output works as
-EC2 user-data, a GCE startup script, Azure custom-data, a `remote-exec` payload
-against a host you already own, or a Packer provisioner. Nothing in it is tied
-to a cloud.
+Separate modules cover that half, published from their own repositories because
+the registry derives a module's address from its repository name:
+
+| | |
+| --- | --- |
+| AWS | [`amrutp24/dss/aws`](https://github.com/amrutp24/terraform-aws-dss) |
+| GCP | [`amrutp24/dss/google`](https://github.com/amrutp24/terraform-google-dss) |
+| Azure | [`amrutp24/dss/azurerm`](https://github.com/amrutp24/terraform-azurerm-dss) |
+| Anything else | [`amrutp24/dss-bootstrap/null`](https://github.com/amrutp24/terraform-null-dss-bootstrap) |
+
+The last one renders the DSS install script and creates nothing itself, so the
+same output works as EC2 user-data, a GCE startup script, Azure custom-data, a
+`remote-exec` payload against a host you already own, or a Packer provisioner.
+The other three are that module wired to a platform.
 
 [`examples/provisioning`](examples/provisioning) has four root configurations
 you can apply directly — Docker, AWS, GCP and Azure. Each stands up a running
