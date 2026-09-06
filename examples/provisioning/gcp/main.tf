@@ -20,7 +20,8 @@ provider "google" {
 }
 
 module "dss" {
-  source = "github.com/amrutp24/terraform-google-dss?ref=v0.1.1"
+  source  = "amrutp24/dss/google"
+  version = "~> 0.1"
 
   project_id          = var.project_id
   region              = var.region

@@ -18,7 +18,8 @@ provider "aws" {
 }
 
 module "dss" {
-  source = "github.com/amrutp24/terraform-aws-dss?ref=v0.1.1"
+  source  = "amrutp24/dss/aws"
+  version = "~> 0.1"
 
   region              = var.region
   allowed_cidr_blocks = var.allowed_cidr_blocks
