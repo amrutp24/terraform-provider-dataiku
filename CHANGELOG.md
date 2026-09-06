@@ -6,29 +6,41 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
+## [0.3.0] - 2026-09-06
 
-- The modules that stand up an instance now live in their own repositories, so
-  the Terraform Registry can list them: it derives a module address from the
-  repository name, and this one is a provider. `dss-platform` stays here.
-
-  | Was | Now |
-  | --- | --- |
-  | `modules/dss-aws` | [`amrutp24/dss/aws`](https://github.com/amrutp24/terraform-aws-dss) |
-  | `modules/dss-gcp` | [`amrutp24/dss/google`](https://github.com/amrutp24/terraform-google-dss) |
-  | `modules/dss-azure` | [`amrutp24/dss/azurerm`](https://github.com/amrutp24/terraform-azurerm-dss) |
-  | `modules/dss-bootstrap` | [`amrutp24/dss-bootstrap/null`](https://github.com/amrutp24/terraform-null-dss-bootstrap) |
-
-  The install script had been copied into each cloud module. It now has one
-  home, which the three depend on by tag.
+No change to the provider itself. The binary is identical to 0.2.0; this
+release covers the modules and examples that ship alongside it.
 
 ### Added
 
-- Root configurations under `examples/provisioning` that stand up DSS on AWS,
-  GCP and Azure, alongside the existing Docker one. Each is applied directly
-  rather than wired up as a module, and all three install DSS through
-  `modules/dss-bootstrap` so the install script has one copy rather than
-  three. `allowed_cidr_blocks` has no default and refuses `0.0.0.0/0`.
+- `modules/dss-platform`, which configures a running instance: groups with
+  their DSS ability flags, code environments, projects, and the permissions on
+  them. Project grants live in their own resource because that resource is
+  authoritative for a project, so a project listed without grants is left alone
+  rather than stripped. Building code environments is off by default, since it
+  runs pip on the instance and an apply should not hang on a package index by
+  surprise.
+- `examples/provisioning` for AWS, GCP and Azure, alongside the existing Docker
+  one, and `examples/platform` for the configuration layer.
+
+### Changed
+
+- The modules that stand up an instance are published separately, because the
+  Terraform Registry derives a module address from its repository name and this
+  repository is a provider:
+
+  | Was | Now |
+  | --- | --- |
+  | `modules/dss-aws` | [`amrutp24/dss/aws`](https://registry.terraform.io/modules/amrutp24/dss/aws) |
+  | `modules/dss-gcp` | [`amrutp24/dss/google`](https://registry.terraform.io/modules/amrutp24/dss/google) |
+  | `modules/dss-azure` | [`amrutp24/dss/azurerm`](https://registry.terraform.io/modules/amrutp24/dss/azurerm) |
+  | `modules/dss-bootstrap` | [`amrutp24/dss-bootstrap/null`](https://registry.terraform.io/modules/amrutp24/dss-bootstrap/null) |
+
+  The install script had been copied into each cloud module. It now has one
+  home that the three depend on with a version constraint.
+
+- The provisioning examples call those modules from the registry, so they show
+  what a consumer writes rather than a relative path only this repository has.
 
 ## [0.2.0] - 2026-09-05
 
