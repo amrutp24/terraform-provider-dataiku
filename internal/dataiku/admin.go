@@ -3,6 +3,7 @@ package dataiku
 import (
 	"context"
 	"net/url"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -262,6 +263,62 @@ func (c *Client) UpdateCodeEnvPackages(ctx context.Context, lang, name string) (
 // DeleteCodeEnv removes a code environment.
 func (c *Client) DeleteCodeEnv(ctx context.Context, lang, name string) error {
 	return c.delete(ctx, codeEnvPath(lang, name), nil)
+}
+
+// CodeEnvLogs lists the log files DSS kept for a code environment. Each entry
+// carries at least a "name".
+func (c *Client) CodeEnvLogs(ctx context.Context, lang, name string) ([]map[string]any, error) {
+	var out []map[string]any
+	if err := c.get(ctx, codeEnvPath(lang, name)+"/logs", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CodeEnvLog fetches one code environment log. DSS serves these as plain text.
+func (c *Client) CodeEnvLog(ctx context.Context, lang, name, logName string) (string, error) {
+	var out string
+	if err := c.get(ctx, codeEnvPath(lang, name)+"/logs/"+url.PathEscape(logName), nil, &out); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+// CodeEnvFailureLog returns the tail of a code environment's most recent log,
+// which is where DSS records why a build failed.
+//
+// Creating an environment is two steps behind one API call: DSS registers it
+// and then builds a virtualenv, and the call returns as soon as the first has
+// happened. When the build then fails the environment does not exist, and
+// every later request for it answers 500 with a message about a missing
+// desc.json that says nothing about the cause. The log does: a missing
+// interpreter, for instance, appears there as
+//
+//	_create-virtualenv.sh: line 17: python3.9: command not found
+//
+// This is only ever used to make an error message useful, so it reports
+// nothing rather than an error of its own when the logs cannot be read.
+func (c *Client) CodeEnvFailureLog(ctx context.Context, lang, name string, maxLines int) string {
+	logs, err := c.CodeEnvLogs(ctx, lang, name)
+	if err != nil || len(logs) == 0 {
+		return ""
+	}
+
+	logName, _ := logs[len(logs)-1]["name"].(string)
+	if logName == "" {
+		return ""
+	}
+
+	body, err := c.CodeEnvLog(ctx, lang, name, logName)
+	if err != nil || strings.TrimSpace(body) == "" {
+		return ""
+	}
+
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // TestConnection asks DSS to actually dial the connection, rather than merely

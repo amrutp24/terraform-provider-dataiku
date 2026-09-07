@@ -6,6 +6,41 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-07
+
+### Fixed
+
+- A code environment DSS accepts but cannot build now reports why. Registering
+  an environment and building its virtualenv are separate steps behind one API
+  call, and the call returns after the first. When the build fails there is no
+  environment, and every later read answers
+
+  ```
+  HTTP 500 Internal Server Error: Not a file: /python/<name>/desc.json
+  ```
+
+  The provider passed that through as "was created but applying its settings
+  failed", which says the opposite of what happened: nothing was created. It
+  now fetches the environment's build log from DSS and puts the actual cause in
+  the diagnostic, so
+
+  ```
+  _create-virtualenv.sh: line 17: python3.9: command not found
+  ```
+
+  is what the practitioner reads instead of a path to a missing file.
+
+### Added
+
+- `Client.CodeEnvLogs`, `Client.CodeEnvLog` and `Client.CodeEnvFailureLog` for
+  reading the build logs DSS keeps per environment.
+
+### Changed
+
+- `python_interpreter` documents that it should be set rather than left to the
+  instance default. DSS 15 on Ubuntu 24.04 defaults to `python3.9` on a host
+  that ships 3.12 only, which is exactly the failure above.
+
 ## [0.4.1] - 2026-09-07
 
 Documentation only. The binary is identical to 0.4.0.

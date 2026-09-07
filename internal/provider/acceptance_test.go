@@ -647,6 +647,43 @@ func checkListContains(resourceName, attribute, want string) resource.TestCheckF
 	}
 }
 
+// Regression: DSS registers a code environment and then builds its virtualenv,
+// and the create call returns after the first step. When the build fails there
+// is no environment, and reads answer 500 about a missing desc.json, which
+// describes a symptom several steps downstream of the cause. The provider used
+// to pass that through as "was created but applying its settings failed",
+// telling the practitioner the opposite of what happened.
+//
+// Asking for an interpreter the host does not have is how this shows up in
+// practice: a DSS 15 instance on Ubuntu 24.04 defaults to python3.9 on a host
+// that ships 3.12 only.
+func TestAccCodeEnvBuildFailureReportsTheCause(t *testing.T) {
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it needs an interpreter the instance is known not to have")
+	}
+	name := randName(t, "env")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_code_env" "broken" {
+  name               = %[1]q
+  lang               = "PYTHON"
+  python_interpreter = "PYTHON34"
+}
+`, name),
+				// The message must name the real failure, quote the build log
+				// DSS kept, and say what to do about it. Terraform hard-wraps
+				// diagnostics, so match fragments short enough to survive it.
+				ExpectError: regexp.MustCompile(`(?s)failed to build it.*build log.*python3\.4.*python_interpreter`),
+			},
+		},
+	})
+}
+
 func TestAccCodeEnv(t *testing.T) {
 	testAccSetup(t)
 	name := randName(t, "env")

@@ -175,6 +175,12 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}
+	// A *string asks for the body verbatim. Code environment build logs are
+	// served as plain text, not JSON.
+	if s, ok := out.(*string); ok {
+		*s = string(raw)
+		return nil
+	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("decoding response of %s %s: %w (body: %s)", method, path, err, truncate(string(raw), 512))
 	}

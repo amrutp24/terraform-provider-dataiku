@@ -30,6 +30,15 @@ type fakeDSS struct {
 	// unmodelledFieldDropped records whether an update ever wrote back a
 	// document that lost a field the provider does not model.
 	unmodelledFieldDropped bool
+
+	// installedInterpreters is what this pretend host has. Asking for anything
+	// else registers the environment and then fails to build it, which is what
+	// a real instance does.
+	installedInterpreters map[string]bool
+
+	// failedCodeEnvs maps an environment DSS accepted but could not build to
+	// its build log.
+	failedCodeEnvs map[string]string
 }
 
 func newFakeDSS(t *testing.T) (*fakeDSS, string) {
@@ -45,6 +54,11 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 		codeEnvs:    map[string]map[string]any{},
 		scenarios:   map[string]map[string]any{},
 		payloads:    map[string]string{},
+
+		installedInterpreters: map[string]bool{
+			"PYTHON39": true, "PYTHON311": true, "PYTHON312": true,
+		},
+		failedCodeEnvs: map[string]string{},
 	}
 
 	server := httptest.NewServer(f.handler())
@@ -482,6 +496,37 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Logs outlive a failed build: they are the only place DSS records why it
+	// failed, so they answer for an environment that no longer exists.
+	if logText, failed := f.failedCodeEnvs[key]; failed || f.codeEnvs[key] != nil {
+		logName := "createPythonEnv.log"
+		switch {
+		case sub == "logs" && r.Method == http.MethodGet:
+			if !failed {
+				writeJSON(w, []any{})
+				return
+			}
+			writeJSON(w, []any{map[string]any{"name": logName, "size": len(logText)}})
+			return
+		case sub == "logs/"+logName && r.Method == http.MethodGet:
+			if !failed {
+				writeErr(w, http.StatusNotFound, "No such log")
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte(logText))
+			return
+		}
+	}
+
+	// An environment DSS accepted but could not build is absent from disk, and
+	// reads for it fail on the descriptor that was never written.
+	if _, failed := f.failedCodeEnvs[key]; failed {
+		writeErr(w, http.StatusInternalServerError,
+			"Not a file: /"+strings.ToLower(lang)+"/"+name+"/desc.json")
+		return
+	}
+
 	switch r.Method {
 	case http.MethodPost:
 		var body map[string]any
@@ -491,6 +536,25 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 		interpreter, _ := body["pythonInterpreter"].(string)
 		if interpreter == "" {
 			interpreter = "PYTHON39"
+		}
+		// DSS registers the environment and then builds a virtualenv, and the
+		// call returns after the first. An interpreter the host does not have
+		// fails the build, so the request still succeeds and every later read
+		// of the environment does not.
+		if lang == "PYTHON" && !f.installedInterpreters[interpreter] {
+			binary := "python3." + strings.TrimPrefix(interpreter, "PYTHON3")
+			f.failedCodeEnvs[key] = strings.Join([]string{
+				"*********************************************************",
+				"*",
+				"* create empty env",
+				"*",
+				"* command : /opt/dataiku/scripts/_create-virtualenv.sh -p " + binary + " " + name,
+				"*",
+				"*********************************************************",
+				"/opt/dataiku/scripts/_create-virtualenv.sh: line 17: " + binary + ": command not found",
+			}, "\n")
+			writeJSON(w, map[string]any{"envName": name})
+			return
 		}
 		f.codeEnvs[key] = map[string]any{
 			"envName":         name,

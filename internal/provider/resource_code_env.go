@@ -101,10 +101,17 @@ func (r *codeEnvResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"python_interpreter": schema.StringAttribute{
 				Optional: true,
 				Computed: true,
-				MarkdownDescription: "Interpreter to build a Python environment with, for example `PYTHON39` " +
+				MarkdownDescription: "Interpreter to build a Python environment with, for example `PYTHON312` " +
 					"or `PYTHON311`. Which interpreters exist depends on what is installed on the instance, so " +
 					"this provider does not restrict the value. Ignored when `lang` is `R`. Changing this " +
-					"forces a new environment.",
+					"forces a new environment.\n\n" +
+					"**Set this rather than relying on the default.** DSS falls back to an interpreter of its " +
+					"own choosing, and that version is frequently absent from a modern host: a DSS 15 " +
+					"instance on Ubuntu 24.04, which ships Python 3.12 only, defaults to `python3.9` and the " +
+					"build fails with `python3.9: command not found`. DSS reports the environment as created " +
+					"regardless, so the failure surfaces later as a 500 about a missing `desc.json`.\n\n" +
+					"Check what the instance has with `ls /usr/bin/python3*`. DSS 15 recognises `PYTHON34` " +
+					"through `PYTHON315`.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -192,8 +199,8 @@ func (r *codeEnvResource) Create(ctx context.Context, req resource.CreateRequest
 	// so apply them straight away.
 	if err := r.applySettings(ctx, &plan); err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to configure Dataiku code environment",
-			fmt.Sprintf("The code environment %q was created but applying its settings failed: %s", name, err),
+			"Dataiku code environment was not usable after creation",
+			r.creationFailureDetail(ctx, lang, name, err),
 		)
 		return
 	}
@@ -316,6 +323,44 @@ func (r *codeEnvResource) ImportState(ctx context.Context, req resource.ImportSt
 // applySettings writes the managed fields onto the environment's current
 // settings document. DSS keeps most of them under "desc" while exposing some
 // at the top level too, so each one is written wherever it already appears.
+// creationFailureDetail explains a create that DSS accepted and then did not
+// finish.
+//
+// Registering an environment and building its virtualenv are separate steps
+// behind one call, and the call returns after the first. If the build then
+// fails there is no environment, and every later request answers
+//
+//	HTTP 500 Internal Server Error: Not a file: /python/<name>/desc.json
+//
+// which describes a missing file three steps downstream of the cause and reads
+// as though the environment exists but is misconfigured. DSS keeps the reason
+// in the environment's build log, so fetch it and put it in front of the
+// practitioner rather than making them find it on the instance.
+func (r *codeEnvResource) creationFailureDetail(ctx context.Context, lang, name string, err error) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "DSS accepted the request to create %s code environment %q, then failed to "+
+		"build it. Reading it back gave: %s", lang, name, err)
+
+	if tail := r.client.CodeEnvFailureLog(ctx, lang, name, 12); tail != "" {
+		fmt.Fprintf(&b, "\n\nThe end of the environment's build log on the instance:\n\n%s", tail)
+	}
+
+	if lang == "PYTHON" {
+		b.WriteString("\n\nThe usual cause is an interpreter DSS cannot find. Left unset, " +
+			"`python_interpreter` takes whatever the instance defaults to, which is often a " +
+			"version the host does not have: a DSS 15 default of python3.9 on Ubuntu 24.04, " +
+			"which ships 3.12 only, fails exactly this way. Set `python_interpreter` to a " +
+			"version that is installed, such as PYTHON312.")
+	}
+
+	b.WriteString("\n\nNothing was written to state. The environment may still be registered " +
+		"on the instance; delete it under Administration → Code envs before retrying if " +
+		"the next apply reports that the name is taken.")
+
+	return b.String()
+}
+
 func (r *codeEnvResource) applySettings(ctx context.Context, plan *codeEnvResourceModel) error {
 	return r.client.UpdateCodeEnv(ctx, plan.Lang.ValueString(), plan.Name.ValueString(), func(env map[string]any) {
 		if !plan.Packages.IsNull() && !plan.Packages.IsUnknown() {

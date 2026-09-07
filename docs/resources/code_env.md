@@ -62,7 +62,11 @@ resource "dataiku_code_env" "offline" {
 - `install_jupyter_support` (Boolean) Install the packages that let notebooks run against this environment.
 - `install_packages_on_change` (Boolean) Whether Terraform asks DSS to resolve and install the packages after creating the environment or changing `packages`. This runs pip or conda on the instance and can take several minutes; set it to `false` to manage the definition only and build the environment yourself. This argument is local to Terraform and is not stored on the instance.
 - `packages` (String) Requested packages, in requirements.txt form: one specification per line, for example `scikit-learn==1.5.0`. This is what you ask for, not what got installed; DSS resolves it to a concrete set when the environment is built.
-- `python_interpreter` (String) Interpreter to build a Python environment with, for example `PYTHON39` or `PYTHON311`. Which interpreters exist depends on what is installed on the instance, so this provider does not restrict the value. Ignored when `lang` is `R`. Changing this forces a new environment.
+- `python_interpreter` (String) Interpreter to build a Python environment with, for example `PYTHON312` or `PYTHON311`. Which interpreters exist depends on what is installed on the instance, so this provider does not restrict the value. Ignored when `lang` is `R`. Changing this forces a new environment.
+
+**Set this rather than relying on the default.** DSS falls back to an interpreter of its own choosing, and that version is frequently absent from a modern host: a DSS 15 instance on Ubuntu 24.04, which ships Python 3.12 only, defaults to `python3.9` and the build fails with `python3.9: command not found`. DSS reports the environment as created regardless, so the failure surfaces later as a 500 about a missing `desc.json`.
+
+Check what the instance has with `ls /usr/bin/python3*`. DSS 15 recognises `PYTHON34` through `PYTHON315`.
 - `usable_by_all` (Boolean) Whether every user may select this environment. When false, DSS restricts it to the groups configured on the instance.
 
 ### Read-Only
