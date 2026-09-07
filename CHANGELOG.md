@@ -6,6 +6,28 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-07
+
+Documentation only. The binary is identical to 0.4.0.
+
+### Fixed
+
+- The docs claimed the DSS Free Edition does not licence the public REST API,
+  and that the bundled Enterprise trial is what enables it. A DSS 15 Community
+  Edition instance disproves it: `community` true, no Enterprise trial and none
+  ever, yet the API answered and projects, groups, users, connections and
+  scenarios were all created through it.
+
+  An older `dataiku/dss` container that refused with `DSS API is not available
+  with your Free Edition license` is a real observation too, so the docs now say
+  it varies, record both cases, and give the check that settles it for a given
+  instance: whether `/public/api/admin/general-settings/` returns `200`. Which
+  of version, edition and registration decides it is not something this project
+  has isolated, and the docs no longer guess.
+
+- The licensing-status snippet in `dev/README.md` read a nested
+  `base.licenseContent` shape that DSS 15 does not return. It now handles both.
+
 ## [0.4.0] - 2026-09-06
 
 ### Fixed

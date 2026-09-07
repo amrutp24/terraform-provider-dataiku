@@ -11,8 +11,11 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 
 - Terraform 1.8 or later, or 1.11 for the write-only `_wo` arguments that keep
   secrets out of state
-- A Dataiku DSS instance, and an API key for it. DSS must be licensed for the
-  public REST API — the Free Edition is not, on its own.
+- A Dataiku DSS instance, and an API key for it. The instance must serve the
+  public REST API. Whether it does depends on version and licence, so check:
+  `curl -su "$DATAIKU_API_KEY:" "$DSS_URL/public/api/admin/general-settings/"
+  -o /dev/null -w '%{http_code}'` should print `200`. A stock DSS 15 Community
+  Edition does; some older builds do not. See [dev/README.md](dev/README.md).
 
 ## Contents
 

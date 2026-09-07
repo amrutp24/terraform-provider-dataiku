@@ -74,8 +74,12 @@ anything you care about, attach a separate persistent disk, mount it at
 
 ## Licences
 
-The provider talks to the DSS public REST API, which the Free Edition does not
-licence on its own — though the Enterprise trial bundled with it does, while the
-trial lasts. Pass a licence at install time with `license_json`, or register the
-instance through its web interface on first visit. See
-[`dev/README.md`](../../dev/README.md).
+The provider talks to the DSS public REST API. Whether an instance serves it
+depends on version and licence, so check rather than assume: a stock DSS 15
+Community Edition answered it with no licence installed, while an older
+`dataiku/dss` container refused with `DSS API is not available with your Free
+Edition license`. Confirm with
+`curl -su "$DATAIKU_API_KEY:" "$DSS_URL/public/api/admin/general-settings/" -o /dev/null -w '%{http_code}'`,
+which should print `200`.
+
+See [`dev/README.md`](../../dev/README.md).

@@ -22,21 +22,47 @@ docker compose -f dev/docker-compose.yml logs -f
 
 Then open <http://localhost:10000> and sign in as **admin / admin**.
 
-## You need a licence that includes the public API
+## You need an instance that serves the public API
 
-This provider talks to nothing but the DSS public REST API, and **the Free
-Edition does not licence it on its own**. The API key screen reports:
+This provider talks to nothing but the DSS public REST API, and **whether an
+instance serves it varies**. Check rather than assume, because both of these
+are real observations from this project:
 
-> DSS API is not available with your Free Edition license
+- A stock **DSS 15 Community Edition** on GCE, no licence installed and no
+  Enterprise trial (`community: true`, `wasCEEntrepriseTrial: false`), served
+  the API fine. Projects, groups, users, connections and scenarios were all
+  created through it.
+- An older **`dataiku/dss` container** refused, and the API key screen reported:
 
-A Free Edition licence does normally come with a time-limited **Enterprise
-trial**, and the API works for as long as that trial is running. Check where
-you stand:
+  > DSS API is not available with your Free Edition license
+
+The version, the edition and whether the instance has been registered all seem
+to matter, and this project has not isolated which. The check that settles it
+for your instance takes one command:
+
+```bash
+curl -su "$DATAIKU_API_KEY:" http://localhost:10000/public/api/admin/general-settings/ \
+  -o /dev/null -w '%{http_code}'; echo
+```
+
+`200` and the provider will work. `401` is a bad key. A licence error names
+itself in the response body.
+
+Where a licence does gate things, a Free Edition licence may come with a
+time-limited **Enterprise trial**, and the API works while it runs. This reads
+both the older nested shape and the flatter one DSS 15 returns:
 
 ```bash
 curl -su "$DATAIKU_API_KEY:" http://localhost:10000/public/api/admin/licensing/status \
-  | python -c "import json,sys; c=json.load(sys.stdin)['base']['licenseContent']; \
-      print(c['licenseKind'], c['properties'].get('community.eeTrialUntil','no EE trial'))"
+  | python -c "
+import json, sys
+d = json.load(sys.stdin)
+base = d.get('base', {})
+content = base.get('licenseContent', base)
+props = content.get('properties', base)
+print(content.get('licenseKind') or ('COMMUNITY' if base.get('community') else '?'),
+      props.get('community.eeTrialUntil') or base.get('ceEntrepriseTrialUntil') or 'no EE trial')
+"
 ```
 
 A `community.eeTrialUntil` date in the future means the API is available until
