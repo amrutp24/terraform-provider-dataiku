@@ -228,6 +228,8 @@ func (p *dataikuProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewConnectionResource,
 		NewCodeEnvResource,
 		NewScenarioResource,
+		NewContainerImageBuildConfigResource,
+		NewContainerExecutionConfigResource,
 	}
 }
 

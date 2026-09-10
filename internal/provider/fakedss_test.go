@@ -39,6 +39,22 @@ type fakeDSS struct {
 	// failedCodeEnvs maps an environment DSS accepted but could not build to
 	// its build log.
 	failedCodeEnvs map[string]string
+
+	// generalSettings is the instance-wide document containerized execution
+	// lives inside.
+	generalSettings map[string]any
+}
+
+// containerConfigKnownFields is what this pretend DSS understands in a
+// container configuration. Anything else is dropped on write, silently and
+// with a 200, which is what a real instance does: send createNamespace at the
+// top level of an execution config instead of inside kubernetesRuntimeConfig
+// and DSS stores nothing and reports success.
+var containerConfigKnownFields = map[string]bool{
+	"name": true, "type": true, "imageBuildConfig": true, "usableBy": true,
+	"allowedGroups": true, "workloadType": true, "baseImageType": true,
+	"imageBuilderType": true, "kubernetesRuntimeConfig": true,
+	"dockerRuntimeConfig": true, "properties": true, "isFinal": true,
 }
 
 func newFakeDSS(t *testing.T) (*fakeDSS, string) {
@@ -59,6 +75,16 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 			"PYTHON39": true, "PYTHON311": true, "PYTHON312": true,
 		},
 		failedCodeEnvs: map[string]string{},
+
+		generalSettings: map[string]any{
+			// A field the provider does not model, to prove a read-modify-write
+			// cycle does not drop the rest of the document.
+			"ldapSettings": map[string]any{"enabled": false},
+			"containerSettings": map[string]any{
+				"buildConfigs":     []any{},
+				"executionConfigs": []any{},
+			},
+		},
 	}
 
 	server := httptest.NewServer(f.handler())
@@ -74,6 +100,7 @@ func (f *fakeDSS) handler() http.Handler {
 	mux.HandleFunc("/public/api/admin/users/", f.handleUsers)
 	mux.HandleFunc("/public/api/admin/connections/", f.handleConnections)
 	mux.HandleFunc("/public/api/admin/code-envs/", f.handleCodeEnvs)
+	mux.HandleFunc("/public/api/admin/general-settings/", f.handleGeneralSettings)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "unhandled "+r.Method+" "+r.URL.Path)
 	})
@@ -407,6 +434,116 @@ func splitFirst(s string) (string, string) {
 		return parts[0], ""
 	}
 	return parts[0], parts[1]
+}
+
+// handleGeneralSettings serves the document containerized execution lives in.
+//
+// The write path deliberately reproduces two behaviours that make a typed
+// Terraform resource unsafe here: DSS drops fields it does not recognise
+// without saying so, and it adds a pile of its own defaults.
+func (f *fakeDSS) handleGeneralSettings(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, f.generalSettings)
+	case http.MethodPut:
+		var body map[string]any
+		if !decodeBody(w, r, &body) {
+			return
+		}
+
+		container, _ := body["containerSettings"].(map[string]any)
+		if container == nil {
+			writeErr(w, http.StatusBadRequest, "containerSettings missing")
+			return
+		}
+
+		// An execution config must name a build config that exists. This is
+		// the one thing a real instance rejects outright rather than ignoring.
+		buildNames := map[string]bool{}
+		for _, entry := range asList(container["buildConfigs"]) {
+			if item, ok := entry.(map[string]any); ok {
+				if name, _ := item["name"].(string); name != "" {
+					buildNames[name] = true
+				}
+			}
+		}
+		for _, entry := range asList(container["executionConfigs"]) {
+			item, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			ref, _ := item["imageBuildConfig"].(string)
+			if ref != "" && !buildNames[ref] {
+				writeErr(w, http.StatusBadRequest,
+					"One of the container execution configurations references an unknown image build configuration.")
+				return
+			}
+		}
+
+		for _, kind := range []string{"buildConfigs", "executionConfigs"} {
+			stored := []any{}
+			for _, entry := range asList(container[kind]) {
+				item, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				stored = append(stored, storeContainerConfig(item, kind))
+			}
+			container[kind] = stored
+		}
+
+		f.generalSettings = body
+		w.WriteHeader(http.StatusOK)
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "bad method")
+	}
+}
+
+func asList(v any) []any {
+	out, _ := v.([]any)
+	return out
+}
+
+// storeContainerConfig keeps only the fields DSS understands and fills in the
+// defaults it adds, matching what a real instance returns after a write.
+func storeContainerConfig(sent map[string]any, kind string) map[string]any {
+	out := map[string]any{}
+	for k, v := range sent {
+		if containerConfigKnownFields[k] {
+			out[k] = v
+		}
+		// Everything else is discarded, exactly as DSS does, with no error.
+	}
+
+	if _, ok := out["properties"]; !ok {
+		out["properties"] = []any{}
+	}
+	if _, ok := out["isFinal"]; !ok {
+		out["isFinal"] = false
+	}
+
+	if kind == "executionConfigs" {
+		if _, ok := out["workloadType"]; !ok {
+			out["workloadType"] = "ANY"
+		}
+		if _, ok := out["kubernetesRuntimeConfig"]; !ok {
+			out["kubernetesRuntimeConfig"] = map[string]any{"createNamespace": false}
+		}
+		out["DKU_TMPDIR"] = "/tmp"
+	} else {
+		if _, ok := out["baseImageType"]; !ok {
+			out["baseImageType"] = "EXEC"
+		}
+		if _, ok := out["imageBuilderType"]; !ok {
+			out["imageBuilderType"] = "DOCKER"
+		}
+		out["dockerBuilderConfig"] = map[string]any{"dockerTLSVerify": false}
+	}
+
+	return out
 }
 
 func orEmpty(v any) any {

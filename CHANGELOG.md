@@ -6,6 +6,35 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `dataiku_container_image_build_config` and `dataiku_container_execution_config`,
+  which manage DSS containerized execution ("Elastic AI"). Both are entries in
+  lists inside the instance-wide general settings document, so they share one
+  implementation.
+
+  Settings are supplied as JSON rather than as typed arguments. DSS rewrites
+  what it is given: it fills in defaults, moves values into nested runtime
+  blocks, and **silently discards anything it does not recognise at the level it
+  was supplied, while answering 200**. Typed arguments would report success for
+  settings the instance is not running. Every key is read back after the write
+  and compared, so a dropped one fails the apply and names itself.
+
+  Dataiku documents no field of this object anywhere, and no supported API for
+  configuring it. The field names were recovered by reading a running DSS 15
+  instance, and the structure already differs between DSS majors.
+
+- `Client.GeneralSettings` and `Client.UpdateGeneralSettings`, with the
+  read-modify-write cycle serialised: both resource types edit one document and
+  Terraform applies in parallel, so without the lock two overlapping cycles
+  would each read before either wrote and the second would discard the first.
+
+### Notes
+
+- Neither resource has run against a real DSS instance. They are verified only
+  against the in-process fake, which now reproduces DSS's silent dropping of
+  unrecognised fields.
+
 ## [0.5.0] - 2026-09-07
 
 ### Fixed
