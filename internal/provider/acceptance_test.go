@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 
 	"github.com/amrutp24/terraform-provider-dataiku/internal/dataiku"
 )
@@ -1119,6 +1120,13 @@ func TestAccUserPasswordWriteOnly(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		// Write-only attributes are a Terraform 1.11 feature. On anything older
+		// the framework rejects the configuration outright with "WriteOnly
+		// Attribute Not Allowed", so this has to skip rather than fail: the
+		// provider supports 1.8 for everything else.
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_11_0),
+		},
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(`
@@ -1229,6 +1237,13 @@ func TestAccConnectionParamsWriteOnly(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		// Write-only attributes are a Terraform 1.11 feature. On anything older
+		// the framework rejects the configuration outright with "WriteOnly
+		// Attribute Not Allowed", so this has to skip rather than fail: the
+		// provider supports 1.8 for everything else.
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_11_0),
+		},
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(`
