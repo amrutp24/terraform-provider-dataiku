@@ -76,6 +76,45 @@ jobs:
       - run: go test -v -cover -race ./...
         timeout-minutes: 10
 
+  fake:
+    name: Acceptance tests (fake instance)
+    runs-on: ubuntu-latest
+    # The same suite as the job below, against the in-process fake rather than a
+    # real instance. It needs no credentials and nothing to clean up, so unlike
+    # that job it always runs.
+    #
+    # Without this the suite ran nowhere. resource.Test skips itself unless
+    # TF_ACC is set, the unit test job does not set it, and the real-instance
+    # job below is gated on a variable this repository does not define, so 25
+    # acceptance tests skipped while CI reported green.
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform:
+          # 1.8 is the floor the provider supports; 1.11 is where write-only
+          # arguments start working. Anything version-specific shows up as one
+          # of these two failing on its own.
+          - '1.8.*'
+          - '1.11.*'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ matrix.terraform }}
+          terraform_wrapper: false
+      - run: go mod download
+      # DATAIKU_HOST is deliberately not set: testAccSetup starts the fake and
+      # points the provider at it whenever that variable is empty.
+      - env:
+          TF_ACC: '1'
+        run: go test -v -cover ./internal/provider/
+        timeout-minutes: 15
+
   acceptance:
     name: Acceptance tests
     runs-on: ubuntu-latest
