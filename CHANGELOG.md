@@ -6,6 +6,47 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `dataiku_container_image_build_config` and `dataiku_container_execution_config`,
+  which manage DSS containerized execution ("Elastic AI"). Both are entries in
+  lists inside the instance-wide general settings document, so they share one
+  implementation.
+
+  Settings are supplied as JSON rather than as typed arguments. DSS rewrites
+  what it is given: it fills in defaults, moves values into nested runtime
+  blocks, and **silently discards anything it does not recognise at the level it
+  was supplied, while answering 200**. Typed arguments would report success for
+  settings the instance is not running. Every key is read back after the write
+  and compared, so a dropped one fails the apply and names itself.
+
+  Dataiku documents no field of this object anywhere, and no supported API for
+  configuring it. The field names were recovered by reading a running DSS 15
+  instance, and the structure already differs between DSS majors.
+
+- `Client.GeneralSettings` and `Client.UpdateGeneralSettings`, with the
+  read-modify-write cycle serialised: both resource types edit one document and
+  Terraform applies in parallel, so without the lock two overlapping cycles
+  would each read before either wrote and the second would discard the first.
+
+### Notes
+
+- Both resources are verified against a real DSS 15 instance as well as the
+  fake. That run found the fake was wrong about the shape of an image build
+  configuration: it has no `type` field, unlike an execution configuration, and
+  DSS drops one sent to it without complaint. The read-back check caught it and
+  failed the apply naming the field, which is what the whole design is for. The
+  fake now models the two lists separately.
+
+- The instance used was a Free Edition with the advanced features trial, not a
+  plain Community Edition. Whether unlicensed CE also accepts containerized
+  execution is still untested.
+
+- `TestAccCodeEnv` now sets `python_interpreter`, configurable with
+  `DATAIKU_TEST_PYTHON_INTERPRETER` and defaulting to `PYTHON312`. Left unset it
+  failed against a real Ubuntu 24.04 instance, because DSS 15 falls back to
+  python3.9 and Noble ships 3.12 only.
+
 ## [0.5.0] - 2026-09-07
 
 ### Fixed
