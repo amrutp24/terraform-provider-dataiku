@@ -27,11 +27,16 @@ This resource edits two lists inside the instance-wide general settings document
 # host-side step: `dssadmin build-base-image --type container-exec` on the DSS
 # machine, which needs a working Docker daemon there and must be repeated after
 # every DSS upgrade.
+#
+# Note there is no "type" here, unlike an execution configuration. A build
+# configuration is described by baseImageType and imageBuilderType, and DSS 15
+# drops a "type" sent to one without saying so. This resource reads every key
+# back after writing, so that mistake fails the apply rather than passing
+# quietly.
 resource "dataiku_container_image_build_config" "gke" {
   name = "gke-build"
 
   settings_json = jsonencode({
-    type             = "KUBERNETES"
     baseImageType    = "EXEC"
     imageBuilderType = "DOCKER"
   })
@@ -45,7 +50,6 @@ resource "dataiku_container_image_build_config" "in_cluster" {
   name = "in-cluster-build"
 
   settings_json = jsonencode({
-    type             = "KUBERNETES"
     baseImageType    = "EXEC"
     imageBuilderType = "DKU_IN_CLUSTER"
   })

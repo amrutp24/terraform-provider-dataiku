@@ -50,11 +50,25 @@ type fakeDSS struct {
 // with a 200, which is what a real instance does: send createNamespace at the
 // top level of an execution config instead of inside kubernetesRuntimeConfig
 // and DSS stores nothing and reports success.
-var containerConfigKnownFields = map[string]bool{
-	"name": true, "type": true, "imageBuildConfig": true, "usableBy": true,
-	"allowedGroups": true, "workloadType": true, "baseImageType": true,
-	"imageBuilderType": true, "kubernetesRuntimeConfig": true,
-	"dockerRuntimeConfig": true, "properties": true, "isFinal": true,
+//
+// The two lists do not take the same fields, which is not obvious and cost a
+// failing apply against a real instance to find. An execution config carries
+// "type": "KUBERNETES". A build config has no type at all: it is described by
+// baseImageType and imageBuilderType, and a type sent to one is dropped like
+// any other unrecognised field. An earlier version of this fake accepted type
+// for both, so the suite passed while a real instance refused.
+var containerConfigKnownFields = map[string]map[string]bool{
+	"buildConfigs": {
+		"name": true, "baseImageType": true, "imageBuilderType": true,
+		"dockerBuilderConfig": true, "dkuInClusterBuilderConfig": true,
+		"openshiftBuilderConfig": true, "properties": true, "isFinal": true,
+	},
+	"executionConfigs": {
+		"name": true, "type": true, "imageBuildConfig": true, "usableBy": true,
+		"allowedGroups": true, "workloadType": true,
+		"kubernetesRuntimeConfig": true, "dockerRuntimeConfig": true,
+		"properties": true, "isFinal": true,
+	},
 }
 
 func newFakeDSS(t *testing.T) (*fakeDSS, string) {
@@ -510,9 +524,10 @@ func asList(v any) []any {
 // storeContainerConfig keeps only the fields DSS understands and fills in the
 // defaults it adds, matching what a real instance returns after a write.
 func storeContainerConfig(sent map[string]any, kind string) map[string]any {
+	known := containerConfigKnownFields[kind]
 	out := map[string]any{}
 	for k, v := range sent {
-		if containerConfigKnownFields[k] {
+		if known[k] {
 			out[k] = v
 		}
 		// Everything else is discarded, exactly as DSS does, with no error.

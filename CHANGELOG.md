@@ -31,9 +31,21 @@ All notable changes to this provider are documented here. The format follows
 
 ### Notes
 
-- Neither resource has run against a real DSS instance. They are verified only
-  against the in-process fake, which now reproduces DSS's silent dropping of
-  unrecognised fields.
+- Both resources are verified against a real DSS 15 instance as well as the
+  fake. That run found the fake was wrong about the shape of an image build
+  configuration: it has no `type` field, unlike an execution configuration, and
+  DSS drops one sent to it without complaint. The read-back check caught it and
+  failed the apply naming the field, which is what the whole design is for. The
+  fake now models the two lists separately.
+
+- The instance used was a Free Edition with the advanced features trial, not a
+  plain Community Edition. Whether unlicensed CE also accepts containerized
+  execution is still untested.
+
+- `TestAccCodeEnv` now sets `python_interpreter`, configurable with
+  `DATAIKU_TEST_PYTHON_INTERPRETER` and defaulting to `PYTHON312`. Left unset it
+  failed against a real Ubuntu 24.04 instance, because DSS 15 falls back to
+  python3.9 and Noble ships 3.12 only.
 
 ## [0.5.0] - 2026-09-07
 

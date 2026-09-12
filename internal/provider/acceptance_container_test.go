@@ -22,8 +22,9 @@ func TestAccContainerConfigs(t *testing.T) {
 resource "dataiku_container_image_build_config" "test" {
   name = %[1]q
 
+  # No "type" here. An execution config has one; a build config does not, and
+  # DSS drops it silently. Verified against DSS 15.
   settings_json = jsonencode({
-    type             = "KUBERNETES"
     baseImageType    = "EXEC"
     imageBuilderType = "DOCKER"
   })
@@ -58,8 +59,9 @@ resource "dataiku_container_execution_config" "test" {
 resource "dataiku_container_image_build_config" "test" {
   name = %[1]q
 
+  # No "type" here. An execution config has one; a build config does not, and
+  # DSS drops it silently. Verified against DSS 15.
   settings_json = jsonencode({
-    type             = "KUBERNETES"
     baseImageType    = "EXEC"
     imageBuilderType = "DOCKER"
   })
@@ -112,7 +114,7 @@ func TestAccContainerConfigDroppedFieldFailsLoudly(t *testing.T) {
 				Config: fmt.Sprintf(`
 resource "dataiku_container_image_build_config" "test" {
   name          = %[1]q
-  settings_json = jsonencode({ type = "KUBERNETES" })
+  settings_json = jsonencode({ baseImageType = "EXEC" })
 }
 
 resource "dataiku_container_execution_config" "test" {
@@ -170,7 +172,7 @@ func TestAccContainerConfigRejectsNameInSettings(t *testing.T) {
 				Config: fmt.Sprintf(`
 resource "dataiku_container_image_build_config" "test" {
   name          = %[1]q
-  settings_json = jsonencode({ name = "something-else", type = "KUBERNETES" })
+  settings_json = jsonencode({ name = "something-else", baseImageType = "EXEC" })
 }
 `, build),
 				ExpectError: regexp.MustCompile(`name must not appear in settings_json`),
@@ -195,7 +197,7 @@ func TestAccContainerConfigPreservesTheRestOfGeneralSettings(t *testing.T) {
 				Config: fmt.Sprintf(`
 resource "dataiku_container_image_build_config" "test" {
   name          = %[1]q
-  settings_json = jsonencode({ type = "KUBERNETES" })
+  settings_json = jsonencode({ baseImageType = "EXEC" })
 }
 `, build),
 			},

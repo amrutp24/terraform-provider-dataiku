@@ -62,6 +62,23 @@ func randName(t *testing.T, kind string) string {
 	return "tfacc_" + kind + "_" + strings.ToLower(acctest.RandStringFromCharSet(8, acctest.CharSetAlpha))
 }
 
+// Which Python interpreters exist is a property of the host, not of DSS, so
+// the code environment test takes one the way it takes licence profiles.
+//
+// The default is PYTHON312 rather than nothing, because leaving it unset means
+// DSS picks its own and that choice is frequently absent: DSS 15 falls back to
+// python3.9 and Ubuntu 24.04, which the modules in this repository install,
+// ships 3.12 only. The environment then fails to build while DSS reports it as
+// created. Set DATAIKU_TEST_PYTHON_INTERPRETER if your instance has something
+// else; `ls /usr/bin/python3*` on the host says what it has.
+func testAccPythonInterpreter(t *testing.T) string {
+	t.Helper()
+	if v := os.Getenv("DATAIKU_TEST_PYTHON_INTERPRETER"); v != "" {
+		return v
+	}
+	return "PYTHON312"
+}
+
 // Which licence profiles a DSS instance grants depends on its licence, so the
 // two the user test switches between are configurable. The defaults match what
 // a Dataiku trial licences; read /public/api/admin/licensing/status to find
@@ -688,6 +705,7 @@ resource "dataiku_code_env" "broken" {
 func TestAccCodeEnv(t *testing.T) {
 	testAccSetup(t)
 	name := randName(t, "env")
+	interpreter := testAccPythonInterpreter(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -701,10 +719,14 @@ resource "dataiku_code_env" "test" {
   name = %[1]q
   lang = "PYTHON"
 
+  # Required in practice. Left unset DSS picks an interpreter the
+  # host may not have, and the build fails while DSS reports success.
+  python_interpreter = %[2]q
+
   packages                   = "scikit-learn==1.5.0"
   install_packages_on_change = false
 }
-`, name),
+`, name, interpreter),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "id", "PYTHON/"+name),
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "name", name),
@@ -721,12 +743,16 @@ resource "dataiku_code_env" "test" {
   name = %[1]q
   lang = "PYTHON"
 
+  # Required in practice. Left unset DSS picks an interpreter the
+  # host may not have, and the build fails while DSS reports success.
+  python_interpreter = %[2]q
+
   packages                   = "scikit-learn==1.5.0\npandas==2.2.2"
   install_jupyter_support    = true
   usable_by_all              = false
   install_packages_on_change = false
 }
-`, name),
+`, name, interpreter),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "packages", "scikit-learn==1.5.0\npandas==2.2.2"),
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "install_jupyter_support", "true"),
