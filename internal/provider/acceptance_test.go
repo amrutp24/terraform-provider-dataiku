@@ -706,6 +706,8 @@ func TestAccCodeEnv(t *testing.T) {
 	testAccSetup(t)
 	name := randName(t, "env")
 	interpreter := testAccPythonInterpreter(t)
+	build := randName(t, "build")
+	exec := randName(t, "exec")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -756,6 +758,59 @@ resource "dataiku_code_env" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "packages", "scikit-learn==1.5.0\npandas==2.2.2"),
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "install_jupyter_support", "true"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "usable_by_all", "false"),
+				),
+			},
+			{
+				// The container selection. A new environment builds for every
+				// configuration; this narrows it to one, which is the state DSS
+				// calls "Selected container configurations": the flag off and the
+				// list non-empty.
+				Config: fmt.Sprintf(`
+resource "dataiku_container_image_build_config" "build" {
+  name = %[3]q
+
+  settings_json = jsonencode({
+    baseImageType    = "EXEC"
+    imageBuilderType = "DOCKER"
+  })
+}
+
+resource "dataiku_container_execution_config" "exec" {
+  name = %[4]q
+
+  settings_json = jsonencode({
+    type             = "KUBERNETES"
+    imageBuildConfig = dataiku_container_image_build_config.build.name
+    usableBy         = "ALL"
+    allowedGroups    = []
+  })
+}
+
+resource "dataiku_code_env" "test" {
+  name = %[1]q
+  lang = "PYTHON"
+
+  # Required in practice. Left unset DSS picks an interpreter the
+  # host may not have, and the build fails while DSS reports success.
+  python_interpreter = %[2]q
+
+  packages                   = "scikit-learn==1.5.0\npandas==2.2.2"
+  install_jupyter_support    = true
+  usable_by_all              = false
+  install_packages_on_change = false
+
+  all_container_configs = false
+  container_configs     = [dataiku_container_execution_config.exec.name]
+}
+`, name, interpreter, build, exec),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "all_container_configs", "false"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "container_configs.#", "1"),
+					resource.TestCheckTypeSetElemAttr("dataiku_code_env.test", "container_configs.*", exec),
+					// usable_by_all is stored in the same two places and written the
+					// same way, so this also catches a write that replaced the
+					// document instead of editing it.
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "usable_by_all", "false"),
 				),
 			},

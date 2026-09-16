@@ -25,3 +25,35 @@ resource "dataiku_code_env" "offline" {
   packages                   = "requests==2.32.3"
   install_packages_on_change = false
 }
+
+# An environment for containerized execution. A new environment is built for
+# every container configuration on the instance; this narrows it to one.
+#
+# The list is only consulted while all_container_configs is false. DSS stores
+# it either way and keeps building for everything, so a list on its own looks
+# like it took effect and did not.
+resource "dataiku_code_env" "containerized" {
+  name = "container-py312"
+  lang = "PYTHON"
+
+  # Match the interpreter to the base image. DSS 15 otherwise falls back to
+  # python3.9, which an Ubuntu 24.04 image does not have, and the build fails
+  # after the environment is reported as created.
+  python_interpreter = "PYTHON312"
+
+  packages = "requests==2.32.3"
+
+  all_container_configs = false
+  container_configs     = [dataiku_container_execution_config.gke.name]
+}
+
+resource "dataiku_container_execution_config" "gke" {
+  name = "gke-exec"
+
+  settings_json = jsonencode({
+    type             = "KUBERNETES"
+    imageBuildConfig = "gke-build"
+    usableBy         = "ALL"
+    allowedGroups    = []
+  })
+}

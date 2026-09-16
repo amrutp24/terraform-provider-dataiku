@@ -188,9 +188,39 @@ func VerifyContainerConfigApplied(wanted, stored map[string]any) []string {
 			missing = append(missing, fmt.Sprintf("%s (dropped)", key))
 			continue
 		}
-		if !jsonEqual(want, got) {
+		if !storedAsSent(want, got) {
 			missing = append(missing, fmt.Sprintf("%s (sent %v, stored %v)", key, compact(want), compact(got)))
 		}
 	}
 	return missing
+}
+
+// storedAsSent reports whether DSS kept what was sent, allowing it to have
+// added to nested objects.
+//
+// The comparison has to descend rather than compare whole values, because DSS
+// fills in defaults inside the blocks it is given. Ask for
+//
+//	dockerBuilderConfig: {pushConfigs: [...]}
+//
+// and it stores that alongside a dockerTLSVerify it chose itself. Comparing the
+// two objects whole reports a difference on every apply for a configuration DSS
+// accepted exactly as asked.
+//
+// Lists are compared whole on purpose. A list the caller wrote is the complete
+// intended contents of that field, so an extra element is a real difference,
+// not a default being filled in.
+func storedAsSent(want, got any) bool {
+	wantMap, wantIsMap := want.(map[string]any)
+	gotMap, gotIsMap := got.(map[string]any)
+	if wantIsMap && gotIsMap {
+		for key, w := range wantMap {
+			g, present := gotMap[key]
+			if !present || !storedAsSent(w, g) {
+				return false
+			}
+		}
+		return true
+	}
+	return jsonEqual(want, got)
 }
