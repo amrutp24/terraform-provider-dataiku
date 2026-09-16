@@ -714,6 +714,12 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 			"deploymentMode":  body["deploymentMode"],
 			"specPackageList": "",
 			"usableByAll":     true,
+			// A new environment builds for every container configuration, and
+			// carries an empty selection list alongside that flag. Both start
+			// present, as they do on a real instance, so that a read finds them
+			// rather than falling back to a zero value the provider invented.
+			"allContainerConfs": true,
+			"containerConfs":    []any{},
 			"desc": map[string]any{
 				"pythonInterpreter":     interpreter,
 				"conda":                 body["conda"] == true,
@@ -722,6 +728,8 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 				"corePackagesSet":       "PANDAS23",
 				"installJupyterSupport": false,
 				"usableByAll":           true,
+				"allContainerConfs":     true,
+				"containerConfs":        []any{},
 			},
 		}
 		writeJSON(w, map[string]any{"envName": name})
@@ -741,6 +749,7 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 		if !decodeBody(w, r, &body) {
 			return
 		}
+		mirrorIntoDesc(body)
 		f.codeEnvs[key] = body
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
@@ -748,6 +757,28 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"messages": map[string]any{"error": false}})
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "bad method")
+	}
+}
+
+// mirrorIntoDesc copies the settings DSS keeps in two places from the top level
+// down into "desc", overwriting what was sent there.
+//
+// A code environment document carries usableByAll, allContainerConfs and
+// containerConfs both at the top level and inside "desc". PUT a document whose
+// two copies disagree and a real instance does not merge them or reject the
+// request: the top-level value wins and "desc" is rewritten from it. Without
+// this the fake would happily hold two different values for one setting, and a
+// provider that wrote only one of them would pass here and be wrong against
+// DSS.
+func mirrorIntoDesc(env map[string]any) {
+	desc, ok := env["desc"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, key := range []string{"usableByAll", "allContainerConfs", "containerConfs"} {
+		if value, present := env[key]; present {
+			desc[key] = value
+		}
 	}
 }
 

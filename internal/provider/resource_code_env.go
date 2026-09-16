@@ -47,6 +47,8 @@ type codeEnvResourceModel struct {
 	InstallJupyterSupport   types.Bool   `tfsdk:"install_jupyter_support"`
 	UsableByAll             types.Bool   `tfsdk:"usable_by_all"`
 	InstallPackagesOnChange types.Bool   `tfsdk:"install_packages_on_change"`
+	AllContainerConfigs     types.Bool   `tfsdk:"all_container_configs"`
+	ContainerConfigs        types.Set    `tfsdk:"container_configs"`
 }
 
 func (r *codeEnvResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -151,6 +153,28 @@ func (r *codeEnvResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Optional:            true,
 				Computed:            true,
 				MarkdownDescription: "Whether every user may select this environment. When false, DSS restricts it to the groups configured on the instance.",
+			},
+			"all_container_configs": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				MarkdownDescription: "Build this environment's container image for every containerized " +
+					"execution configuration on the instance. DSS defaults this to `true` for a new " +
+					"environment.\n\n" +
+					"This is the \"Build for\" choice on the environment's Containers tab. Set it to " +
+					"`false` and list the configurations in `container_configs` to build for some of " +
+					"them, or to `false` with `container_configs` empty to build for none.",
+			},
+			"container_configs": schema.SetAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				MarkdownDescription: "Names of the containerized execution configurations to build this " +
+					"environment's image for, as in the `name` of a `dataiku_container_execution_config`.\n\n" +
+					"**Only consulted when `all_container_configs` is `false`.** DSS stores the list " +
+					"either way and builds for everything while the flag is true, so a list set on its " +
+					"own changes nothing.\n\n" +
+					"A set rather than a list because the selection is a membership list: which " +
+					"configurations are named matters and the order they are named in does not.",
 			},
 			"install_packages_on_change": schema.BoolAttribute{
 				Optional: true,
@@ -362,6 +386,15 @@ func (r *codeEnvResource) creationFailureDetail(ctx context.Context, lang, name 
 }
 
 func (r *codeEnvResource) applySettings(ctx context.Context, plan *codeEnvResourceModel) error {
+	// Converted before the write rather than inside the closure, which has
+	// nowhere to report a conversion failure and would otherwise send the
+	// document with the field quietly missing.
+	var convert diag.Diagnostics
+	containerConfigs := fromStringSet(ctx, plan.ContainerConfigs, &convert)
+	if convert.HasError() {
+		return fmt.Errorf("container_configs could not be read: %s", convert.Errors()[0].Detail())
+	}
+
 	return r.client.UpdateCodeEnv(ctx, plan.Lang.ValueString(), plan.Name.ValueString(), func(env map[string]any) {
 		if !plan.Packages.IsNull() && !plan.Packages.IsUnknown() {
 			setCodeEnvField(env, "specPackageList", plan.Packages.ValueString())
@@ -377,6 +410,12 @@ func (r *codeEnvResource) applySettings(ctx context.Context, plan *codeEnvResour
 		}
 		if !plan.UsableByAll.IsNull() && !plan.UsableByAll.IsUnknown() {
 			setCodeEnvField(env, "usableByAll", plan.UsableByAll.ValueBool())
+		}
+		if !plan.AllContainerConfigs.IsNull() && !plan.AllContainerConfigs.IsUnknown() {
+			setCodeEnvField(env, "allContainerConfs", plan.AllContainerConfigs.ValueBool())
+		}
+		if !plan.ContainerConfigs.IsNull() && !plan.ContainerConfigs.IsUnknown() {
+			setCodeEnvField(env, "containerConfs", containerConfigs)
 		}
 	})
 }
@@ -440,6 +479,8 @@ func (r *codeEnvResource) readInto(ctx context.Context, lang, name string, model
 	model.CorePackagesSet = types.StringValue(codeEnvString(env, "corePackagesSet"))
 	model.InstallJupyterSupport = types.BoolValue(codeEnvBool(env, "installJupyterSupport"))
 	model.UsableByAll = types.BoolValue(codeEnvBool(env, "usableByAll"))
+	model.AllContainerConfigs = types.BoolValue(codeEnvBool(env, "allContainerConfs"))
+	model.ContainerConfigs = toStringSet(ctx, codeEnvStringSlice(env, "containerConfs"), &diags)
 
 	// install_packages_on_change only exists in configuration, so a fresh
 	// import has nothing to read it from.
@@ -477,6 +518,28 @@ func codeEnvString(env map[string]any, key string) string {
 		}
 	}
 	return stringFromMap(env, key)
+}
+
+// codeEnvStringSlice reads a list of strings from the top level, falling back
+// to "desc".
+//
+// The other readers here prefer "desc", and this one deliberately does not. PUT
+// a document whose two copies of a field disagree and the top-level value is
+// the one that survives: DSS keeps it and rewrites "desc" from it, for
+// containerConfs, allContainerConfs and usableByAll alike. The two therefore
+// always agree by the time anything reads them back, but the top level is the
+// copy that decides, and it is the copy DSS's own interface binds to.
+//
+// Presence rather than a successful cast decides, so a list stored as empty is
+// not mistaken for an absent one and read from the other level instead.
+func codeEnvStringSlice(env map[string]any, key string) []string {
+	if _, present := env[key]; present {
+		return stringSliceFromMap(env, key)
+	}
+	if desc, ok := env["desc"].(map[string]any); ok {
+		return stringSliceFromMap(desc, key)
+	}
+	return nil
 }
 
 func codeEnvBool(env map[string]any, key string) bool {
