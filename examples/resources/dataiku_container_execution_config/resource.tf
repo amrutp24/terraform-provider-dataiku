@@ -32,8 +32,12 @@ resource "dataiku_container_execution_config" "team" {
 
     kubernetesRuntimeConfig = {
       # Dataiku suggests a namespace per user so quotas can be applied per
-      # person. The variable is expanded by DSS, not by Terraform.
-      createNamespace = true
+      # person. The field is kubernetesNamespace and it belongs here, inside
+      # kubernetesRuntimeConfig: at the top level DSS drops it and every pod
+      # lands in "default". The variable is expanded by DSS at run time, so
+      # it is escaped here and Terraform emits it literally.
+      kubernetesNamespace = "dssns-$${dssUserLogin}"
+      createNamespace     = true
 
       kubernetesResources = {
         memRequestMB = 4096

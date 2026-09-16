@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -156,4 +157,71 @@ func writeOnlyString(ctx context.Context, config tfsdk.Config, attribute string,
 		return value.ValueString()
 	}
 	return fallback.ValueString()
+}
+
+// getPath reads a value from a nested document by key path, reporting whether
+// it was there at all. Absence is meaningful: DSS spells "nothing selected" by
+// leaving the field out rather than by storing an empty value.
+func getPath(document map[string]any, keys []string) (any, bool) {
+	current := document
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			value, present := current[key]
+			return value, present
+		}
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current = next
+	}
+	return nil, false
+}
+
+// setPath writes a value into a nested document, creating the intermediate
+// objects it needs. An intermediate that exists but is not an object is
+// replaced, which only happens on a document that was already malformed.
+func setPath(document map[string]any, keys []string, value any) {
+	current := document
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			current[key] = value
+			return
+		}
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			current[key] = next
+		}
+		current = next
+	}
+}
+
+// deletePath removes a key from a nested document. Intermediate objects are
+// left in place: they hold other settings.
+func deletePath(document map[string]any, keys []string) {
+	current := document
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			delete(current, key)
+			return
+		}
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			return
+		}
+		current = next
+	}
+}
+
+// jsonEqualValues compares a value sent with the value read back. Both sides go
+// through a JSON encoder so that a number the provider sent as an int and DSS
+// returned as a float compares equal.
+func jsonEqualValues(want, got any) bool {
+	left, errA := json.Marshal(want)
+	right, errB := json.Marshal(got)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return string(left) == string(right)
 }

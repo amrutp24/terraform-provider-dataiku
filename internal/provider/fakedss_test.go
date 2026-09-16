@@ -94,6 +94,10 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 			// A field the provider does not model, to prove a read-modify-write
 			// cycle does not drop the rest of the document.
 			"ldapSettings": map[string]any{"enabled": false},
+			// Present because a real instance always carries it, whatever it is
+			// set to. The value here is a starting point for tests, not a claim
+			// about what DSS ships with.
+			"useImplicitK8sCluster": false,
 			"containerSettings": map[string]any{
 				"buildConfigs":     []any{},
 				"executionConfigs": []any{},
@@ -509,10 +513,57 @@ func (f *fakeDSS) handleGeneralSettings(w http.ResponseWriter, r *http.Request) 
 			container[kind] = stored
 		}
 
+		dropUnknownSettings(body, f.generalSettings)
+
 		f.generalSettings = body
 		w.WriteHeader(http.StatusOK)
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "bad method")
+	}
+}
+
+// settingsRecognisedWhileAbsent lists fields a real instance understands but
+// does not store until something sets them, keyed by the object they belong to.
+// Without this the rule below would treat the first write of one of them as a
+// field DSS has never heard of.
+var settingsRecognisedWhileAbsent = map[string]map[string]bool{
+	"": {
+		"defaultK8sClusterId": true,
+	},
+	"containerSettings": {
+		"defaultExecutionConfig":                          true,
+		"defaultExecutionConfigForVisualRecipesWorkloads": true,
+		"defaultExecutionConfigForExporters":              true,
+	},
+}
+
+// dropUnknownSettings removes keys the instance does not recognise, silently,
+// exactly as a real one does.
+//
+// PUT a general settings document carrying a key DSS has never heard of and it
+// answers 200, stores everything else, and leaves that key out. Verified
+// against DSS 15 by sending an invented top-level field and reading the
+// document back. The rule here is that the document DSS already holds defines
+// what it recognises, which is what makes a misspelled or relocated field name
+// fail a test rather than pass one.
+func dropUnknownSettings(sent, current map[string]any) {
+	prune(sent, current, "")
+	sentContainer, sentOK := sent["containerSettings"].(map[string]any)
+	currentContainer, currentOK := current["containerSettings"].(map[string]any)
+	if sentOK && currentOK {
+		prune(sentContainer, currentContainer, "containerSettings")
+	}
+}
+
+func prune(sent, current map[string]any, object string) {
+	for key := range sent {
+		if _, known := current[key]; known {
+			continue
+		}
+		if settingsRecognisedWhileAbsent[object][key] {
+			continue
+		}
+		delete(sent, key)
 	}
 }
 
@@ -886,4 +937,22 @@ func (f *fakeDSS) handleScenarios(w http.ResponseWriter, r *http.Request, projec
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "bad method")
 	}
+}
+
+// generalSetting reads one top-level field of the instance-wide document, for
+// tests that assert on what survived an apply or a destroy.
+func (f *fakeDSS) generalSetting(key string) (any, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	value, present := f.generalSettings[key]
+	return value, present
+}
+
+// forgetSetting removes a field from the document so that the instance no
+// longer recognises it, which is how a DSS version that renamed or moved a
+// field behaves: writes of it are dropped and answered with 200.
+func (f *fakeDSS) forgetSetting(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.generalSettings, key)
 }
