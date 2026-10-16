@@ -34,6 +34,44 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 | `dataiku_container_execution_config` | |
 | `dataiku_container_settings` | |
 
+## Try it without a Dataiku instance
+
+`dev/` brings up a disposable DSS in Docker, so nothing you care about is
+involved:
+
+```bash
+docker compose -f dev/docker-compose.yml up -d
+```
+
+The first start takes a few minutes while DSS initialises. Then mint an admin
+key without opening the UI:
+
+```bash
+docker exec dataiku-dss-dev bash -lc \
+  'dss/bin/dsscli api-key-create --admin true --label terraform --output json'
+```
+
+The path is relative on purpose. Git Bash on Windows rewrites a
+leading-slash argument into a Windows path, so the absolute form fails
+there with `C:/Program Files/...: No such file or directory`.
+
+Point the provider at it and apply anything from [`examples/`](examples):
+
+```bash
+export DATAIKU_HOST=http://localhost:10000
+export DATAIKU_API_KEY=dkuaps-...
+```
+
+Throw it away afterwards with `docker compose -f dev/docker-compose.yml down -v`.
+
+Verified on 2026-10-16 against `dataiku/dss:latest`, which is DSS 15.0.0 and
+carries no licence: the public API answers, and 26 of the 27 acceptance tests
+that run against a live instance pass against it. The exception is scenario
+temporal triggers, which an unlicensed instance rejects with "Triggers of type
+temporal are not available in your license", so a `dataiku_scenario` with a
+`temporal` trigger needs a licensed instance. Everything else in the table
+above works on this image.
+
 ## Trying it on an instance you already have
 
 Every resource supports `terraform import`, which is the safe way in. Import
