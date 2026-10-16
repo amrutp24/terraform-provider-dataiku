@@ -64,13 +64,22 @@ export DATAIKU_API_KEY=dkuaps-...
 
 Throw it away afterwards with `docker compose -f dev/docker-compose.yml down -v`.
 
-Verified on 2026-10-16 against `dataiku/dss:latest`, which is DSS 15.0.0 and
-carries no licence: the public API answers, and 26 of the 27 acceptance tests
-that run against a live instance pass against it. The exception is scenario
-temporal triggers, which an unlicensed instance rejects with "Triggers of type
-temporal are not available in your license", so a `dataiku_scenario` with a
-`temporal` trigger needs a licensed instance. Everything else in the table
-above works on this image.
+Verified on 2026-10-16 against `dataiku/dss:latest`, which is DSS 15.0.0 with
+no licence installed: the public API answers, and 26 of the 27 acceptance tests
+that run against a live instance pass against it. The one that fails is
+scenario temporal triggers, rejected with "Triggers of type temporal are not
+available in your license", so a `dataiku_scenario` with a `temporal` trigger
+needs a licensed instance.
+
+Writing a setting is not the same as the feature working, and two resources sit
+on the wrong side of that line here. The container resources pass on this image
+only because DSS stores and returns what they send. DSS's own interface says
+`Containers are not available with your Free Edition license`, and in this
+project containerized execution was only ever actually run on a licensed
+instance. On an unlicensed image, treat
+`dataiku_container_image_build_config`, `dataiku_container_execution_config`
+and `dataiku_container_settings` as verified for the write and the read back,
+and nothing further.
 
 ## Trying it on an instance you already have
 
