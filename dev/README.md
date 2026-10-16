@@ -32,9 +32,19 @@ are real observations from this project:
   Enterprise trial (`community: true`, `wasCEEntrepriseTrial: false`), served
   the API fine. Projects, groups, users, connections and scenarios were all
   created through it.
-- An older **`dataiku/dss` container** refused, and the API key screen reported:
+- The **`dataiku/dss:latest`** image this compose file pulls, which is DSS
+  15.0.0 and carries no licence, serves the API. Checked on 2026-10-16: 26 of
+  the 27 acceptance tests that run against a live instance passed against it.
+  The one that did not is scenario temporal triggers, rejected with
+  `Triggers of type temporal are not available in your license`, so a
+  `dataiku_scenario` with a `temporal` trigger needs a licensed instance.
+- An **older `dataiku/dss` container** refused outright, and the API key screen
+  reported:
 
   > DSS API is not available with your Free Edition license
+
+  That was an earlier image. It is recorded here because it is the failure to
+  expect if you pin an old tag, not because the current one behaves that way.
 
 The version, the edition and whether the instance has been registered all seem
 to matter, and this project has not isolated which. The check that settles it
@@ -96,12 +106,12 @@ actually has; they default to `DESIGNER` and `NONE`.
 
 With a licence that includes the API, as the `admin` user:
 
-**Administration → Security → Global API keys → New API key**
+**Administration > Security > Global API keys > New API key**
 
-Give it admin rights, then copy the secret — DSS shows it once.
+Give it admin rights, then copy the secret. DSS shows it once.
 
 A **personal** API key works too and is created by any user under **Profile &
-settings → API keys**. A personal key carries exactly that user's rights, so it
+settings > API keys**. A personal key carries exactly that user's rights, so it
 must belong to an admin for the `dataiku_user`, `dataiku_group` and
 `dataiku_connection` resources to work. The project resources only need rights
 on the projects involved.
@@ -136,7 +146,7 @@ a compose profile:
 docker compose -f dev/docker-compose.yml --profile test up -d
 ```
 
-Then point the test at it by service name — DSS resolves it on the compose
+Then point the test at it by service name. DSS resolves it on the compose
 network, so nothing is published to the host:
 
 ```bash

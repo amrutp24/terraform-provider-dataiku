@@ -4,7 +4,7 @@ Manage Dataiku DSS projects, users, groups, connections and permissions as code,
 through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/rest.html).
 
 > **Scope.** This provider manages objects *inside* a running DSS instance. It does
-> not provision the instance itself — for that, use the cloud provider of your
+> not provision the instance itself. For that, use the cloud provider of your
 > choice or Dataiku Fleet Manager.
 
 ## Requirements
@@ -30,8 +30,63 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 | `dataiku_code_env` | |
 | `dataiku_project_folder` | |
 | `dataiku_scenario` | |
+| `dataiku_container_image_build_config` | |
+| `dataiku_container_execution_config` | |
+| `dataiku_container_settings` | |
 
-Every resource supports `terraform import`.
+## Try it without a Dataiku instance
+
+`dev/` brings up a disposable DSS in Docker, so nothing you care about is
+involved:
+
+```bash
+docker compose -f dev/docker-compose.yml up -d
+```
+
+The first start takes a few minutes while DSS initialises. Then mint an admin
+key without opening the UI:
+
+```bash
+docker exec dataiku-dss-dev bash -lc \
+  'dss/bin/dsscli api-key-create --admin true --label terraform --output json'
+```
+
+The path is relative on purpose. Git Bash on Windows rewrites a
+leading-slash argument into a Windows path, so the absolute form fails
+there with `C:/Program Files/...: No such file or directory`.
+
+Point the provider at it and apply anything from [`examples/`](examples):
+
+```bash
+export DATAIKU_HOST=http://localhost:10000
+export DATAIKU_API_KEY=dkuaps-...
+```
+
+Throw it away afterwards with `docker compose -f dev/docker-compose.yml down -v`.
+
+Verified on 2026-10-16 against `dataiku/dss:latest`, which is DSS 15.0.0 and
+carries no licence: the public API answers, and 26 of the 27 acceptance tests
+that run against a live instance pass against it. The exception is scenario
+temporal triggers, which an unlicensed instance rejects with "Triggers of type
+temporal are not available in your license", so a `dataiku_scenario` with a
+`temporal` trigger needs a licensed instance. Everything else in the table
+above works on this image.
+
+## Trying it on an instance you already have
+
+Every resource supports `terraform import`, which is the safe way in. Import
+the projects, groups and connections an instance already has, run `plan`, and
+read what comes back before you let Terraform change anything. Nothing is
+created or destroyed by an import.
+
+It is 0.x, so pin a minor version: the schema can still change.
+
+What has been exercised against a real DSS 15 instance, rather than only
+against the test fake: projects, groups, users, connections and scenarios, and
+the whole containerized execution path end to end on GCP, from cluster and
+registry through a base image build to a recipe pod reaching DONE. The
+acceptance suite runs against an in-process fake by default, and against your
+own instance if you set `DATAIKU_HOST` and `DATAIKU_API_KEY`.
 
 ## Usage
 
@@ -40,7 +95,7 @@ terraform {
   required_providers {
     dataiku = {
       source  = "amrutp24/dataiku"
-      version = "~> 0.1"
+      version = "~> 0.6"
     }
   }
 }
@@ -96,7 +151,7 @@ same output works as EC2 user-data, a GCE startup script, Azure custom-data, a
 The other three are that module wired to a platform.
 
 [`examples/provisioning`](examples/provisioning) has four root configurations
-you can apply directly — Docker, AWS, GCP and Azure. Each stands up a running
+you can apply directly: Docker, AWS, GCP and Azure. Each stands up a running
 DSS; the Docker one also shows the configuration layer on top.
 
 Note that the two layers need **separate applies**: Terraform builds a
@@ -106,7 +161,7 @@ an API key before the plan that configures it.
 ## Authentication
 
 The provider authenticates with a DSS API key, sent as the HTTP Basic username
-with an empty password — the same scheme the official Dataiku clients use.
+with an empty password, the same scheme the official Dataiku clients use.
 
 | Setting | Argument | Environment variable |
 | --- | --- | --- |
@@ -115,7 +170,7 @@ with an empty password — the same scheme the official Dataiku clients use.
 | Skip TLS verification | `insecure` | `DATAIKU_INSECURE` |
 
 Prefer the environment variable for the key so it never lands in configuration.
-Create a key under **Administration → Security → Global API keys** in DSS. Most
+Create a key under **Administration > Security > Global API keys** in DSS. Most
 resources here need a key with admin rights; `dataiku_project` and the project
 sub-resources work with a key that only has rights on the projects involved.
 
