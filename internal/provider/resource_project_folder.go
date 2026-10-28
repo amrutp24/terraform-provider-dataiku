@@ -50,8 +50,8 @@ func (r *projectFolderResource) Schema(_ context.Context, _ resource.SchemaReque
 			"writing one out.\n\n" +
 			"DSS refuses to delete a folder that still holds projects or child folders, so destroying " +
 			"this resource fails until whatever it contains has moved or gone.\n\n" +
-			"What a folder contains is deliberately not exposed here. Those are reverse references — " +
-			"projects and child folders point at the folder rather than the other way round — so a " +
+			"What a folder contains is deliberately not exposed here. Those are reverse references: " +
+			"projects and child folders point at the folder rather than the other way round, so a " +
 			"resource attribute would always be read before the things that populate it exist. Use the " +
 			"`dataiku_project_folder` data source to see a folder's contents.",
 		Attributes: map[string]schema.Attribute{

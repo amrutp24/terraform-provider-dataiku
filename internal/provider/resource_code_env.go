@@ -379,7 +379,7 @@ func (r *codeEnvResource) creationFailureDetail(ctx context.Context, lang, name 
 	}
 
 	b.WriteString("\n\nNothing was written to state. The environment may still be registered " +
-		"on the instance; delete it under Administration → Code envs before retrying if " +
+		"on the instance; delete it under Administration > Code envs before retrying if " +
 		"the next apply reports that the name is taken.")
 
 	return b.String()

@@ -88,7 +88,7 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				MarkdownDescription: "The same as `password`, but never written to plan or state. Terraform " +
 					"reads it from configuration at apply time and discards it.\n\n" +
 					"Because nothing is retained, the provider cannot tell that the value changed. Bump " +
-					"`password_wo_version` to make it send the password again — that is what a rotation " +
+					"`password_wo_version` to make it send the password again, which is what a rotation " +
 					"looks like:\n\n" +
 					"```\npassword_wo         = ephemeral.some_secret.pw.value\npassword_wo_version = \"2\"\n```\n\n" +
 					"Requires Terraform 1.11 or later. Conflicts with `password`.",
@@ -96,7 +96,7 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"password_wo_version": schema.StringAttribute{
 				Optional: true,
 				MarkdownDescription: "An arbitrary marker whose change tells the provider to send " +
-					"`password_wo` again. Any value works — a counter, a date, a hash of the secret. " +
+					"`password_wo` again. Any value works: a counter, a date, a hash of the secret. " +
 					"Required alongside `password_wo`, since without it a rotated password would never " +
 					"reach the instance.",
 			},

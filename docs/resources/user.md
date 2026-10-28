@@ -64,7 +64,7 @@ This list is the set of memberships Terraform manages, not necessarily the user'
 **This value is stored in Terraform state.** Prefer `password_wo`, which is not.
 - `password_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The same as `password`, but never written to plan or state. Terraform reads it from configuration at apply time and discards it.
 
-Because nothing is retained, the provider cannot tell that the value changed. Bump `password_wo_version` to make it send the password again — that is what a rotation looks like:
+Because nothing is retained, the provider cannot tell that the value changed. Bump `password_wo_version` to make it send the password again, which is what a rotation looks like:
 
 ```
 password_wo         = ephemeral.some_secret.pw.value
@@ -72,7 +72,7 @@ password_wo_version = "2"
 ```
 
 Requires Terraform 1.11 or later. Conflicts with `password`.
-- `password_wo_version` (String) An arbitrary marker whose change tells the provider to send `password_wo` again. Any value works — a counter, a date, a hash of the secret. Required alongside `password_wo`, since without it a rotated password would never reach the instance.
+- `password_wo_version` (String) An arbitrary marker whose change tells the provider to send `password_wo` again. Any value works: a counter, a date, a hash of the secret. Required alongside `password_wo`, since without it a rotated password would never reach the instance.
 - `source_type` (String) Where the user is defined. One of `LOCAL` or `LDAP`. Defaults to `LOCAL`. Changing this forces a new user.
 - `user_profile` (String) Licence profile assigned to the user, for example `DESIGNER`, `FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends entirely on your Dataiku licence, so this provider neither restricts the value nor defaults it: leave it unset and DSS assigns its own fallback profile, which is then read back into state. Read `/public/api/admin/licensing/status` to see what your instance licenses.
 
