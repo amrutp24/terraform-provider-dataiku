@@ -79,12 +79,12 @@ func (p *dataikuProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 			},
 			"max_retries": schema.Int64Attribute{
 				Optional: true,
-				MarkdownDescription: "How many times to repeat a request that failed transiently — a " +
+				MarkdownDescription: "How many times to repeat a request that failed transiently: a " +
 					"connection error, a `429`, or a `5xx`. Defaults to `3`; set `0` to disable retrying.\n\n" +
 					"Only requests that are safe to repeat are retried. A `POST` is repeated solely on a " +
 					"`429`, where DSS has said outright that it did not process the request, because a `5xx` " +
 					"or a dropped connection on a create can mean the object was made and only the reply was " +
-					"lost — repeating that would create a second one.",
+					"lost, and repeating that would create a second one.",
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
 				},

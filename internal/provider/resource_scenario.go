@@ -59,7 +59,7 @@ func (r *scenarioResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		Version: 1,
 		MarkdownDescription: "A scenario in a Dataiku DSS project: what runs, and what makes it run.\n\n" +
 			"Triggers, steps and reporters are supplied as JSON rather than as typed blocks. Their shape " +
-			"varies by trigger and step type and between DSS versions, and DSS rewrites what you send — " +
+			"varies by trigger and step type and between DSS versions, and DSS rewrites what you send, " +
 			"it fills in defaults, renames some fields and stamps timestamps into others. Modelling them " +
 			"as typed attributes would mean inventing names DSS may ignore, and refreshing them from the " +
 			"instance would diff forever against those rewrites.\n\n" +
@@ -78,7 +78,7 @@ func (r *scenarioResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"scenario_id": schema.StringAttribute{
 				Computed: true,
 				MarkdownDescription: "Identifier DSS gave the scenario. It is derived from the name rather " +
-					"than random — `Nightly build` becomes `Nightly_build` — so two scenarios with the same " +
+					"than random: `Nightly build` becomes `Nightly_build`, so two scenarios with the same " +
 					"name in one project collide. It does not change when the scenario is renamed.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -150,7 +150,7 @@ func (r *scenarioResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				// reported as an inconsistent result after apply.
 				Computed:   true,
 				CustomType: jsontypes.NormalizedType{},
-				MarkdownDescription: "Reporters, as a JSON array — what DSS notifies when the scenario " +
+				MarkdownDescription: "Reporters, as a JSON array. What DSS notifies when the scenario " +
 					"finishes. Written but never read back. May carry webhook URLs and credentials, so it is " +
 					"treated as sensitive.",
 				Sensitive: true,

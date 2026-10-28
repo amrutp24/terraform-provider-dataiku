@@ -27,8 +27,8 @@ func NewContainerSettingsResource() resource.Resource {
 }
 
 // containerSettingsResource manages the instance-wide defaults for
-// containerized execution: the "Default settings" block of Administration →
-// Settings → Containerized execution.
+// containerized execution: the "Default settings" block of Administration >
+// Settings > Containerized execution.
 //
 // There is one of these per instance, so the resource is a singleton: it takes
 // no name, and two of them in one configuration fight over the same fields.
@@ -188,7 +188,7 @@ func (r *containerSettingsResource) Schema(_ context.Context, _ resource.SchemaR
 				Optional: true,
 				Computed: true,
 				MarkdownDescription: "Name of the `dataiku_container_execution_config` to run user code " +
-					"in — code recipes and notebooks — for projects that name none. Leave unset to run " +
+					"in, meaning code recipes and notebooks, for projects that name none. Leave unset to run " +
 					"user code on the DSS host.",
 			},
 			"default_execution_config_for_visual_recipes": schema.StringAttribute{
@@ -216,8 +216,8 @@ func (r *containerSettingsResource) Configure(_ context.Context, req resource.Co
 // checks that DSS kept them.
 //
 // The read-back is not defensive padding. DSS discards a top-level key it does
-// not recognise while still answering 200 — a misspelled field name produces a
-// successful apply and an instance that changed nothing — so the only way to
+// not recognise while still answering 200. A misspelled field name produces a
+// successful apply and an instance that changed nothing, so the only way to
 // report the truth is to look.
 func (r *containerSettingsResource) apply(ctx context.Context, plan *containerSettingsResourceModel, diags *diag.Diagnostics) {
 	err := r.client.UpdateGeneralSettings(ctx, func(settings map[string]any) error {
@@ -397,7 +397,7 @@ func (r *containerSettingsResource) Delete(ctx context.Context, req resource.Del
 			"Left the containerized execution settings as they are",
 			"This resource was imported rather than created, so the provider never recorded what "+
 				"these settings held beforehand and cannot restore them. The values are unchanged on "+
-				"the instance; set them under Administration → Settings → Containerized execution if "+
+				"the instance; set them under Administration > Settings > Containerized execution if "+
 				"that is not what you want.",
 		)
 		return

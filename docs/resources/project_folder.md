@@ -6,7 +6,7 @@ description: |-
   A folder that projects are organised into on a Dataiku DSS instance.
   Use this with dataiku_project's project_folder_id to place projects into a hierarchy. DSS assigns the id, so reference it as dataiku_project_folder.<name>.id rather than writing one out.
   DSS refuses to delete a folder that still holds projects or child folders, so destroying this resource fails until whatever it contains has moved or gone.
-  What a folder contains is deliberately not exposed here. Those are reverse references — projects and child folders point at the folder rather than the other way round — so a resource attribute would always be read before the things that populate it exist. Use the dataiku_project_folder data source to see a folder's contents.
+  What a folder contains is deliberately not exposed here. Those are reverse references: projects and child folders point at the folder rather than the other way round, so a resource attribute would always be read before the things that populate it exist. Use the dataiku_project_folder data source to see a folder's contents.
 ---
 
 # dataiku_project_folder (Resource)
@@ -17,7 +17,7 @@ Use this with `dataiku_project`'s `project_folder_id` to place projects into a h
 
 DSS refuses to delete a folder that still holds projects or child folders, so destroying this resource fails until whatever it contains has moved or gone.
 
-What a folder contains is deliberately not exposed here. Those are reverse references — projects and child folders point at the folder rather than the other way round — so a resource attribute would always be read before the things that populate it exist. Use the `dataiku_project_folder` data source to see a folder's contents.
+What a folder contains is deliberately not exposed here. Those are reverse references: projects and child folders point at the folder rather than the other way round, so a resource attribute would always be read before the things that populate it exist. Use the `dataiku_project_folder` data source to see a folder's contents.
 
 ## Example Usage
 

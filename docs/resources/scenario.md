@@ -4,7 +4,7 @@ page_title: "dataiku_scenario Resource - Dataiku"
 subcategory: ""
 description: |-
   A scenario in a Dataiku DSS project: what runs, and what makes it run.
-  Triggers, steps and reporters are supplied as JSON rather than as typed blocks. Their shape varies by trigger and step type and between DSS versions, and DSS rewrites what you send — it fills in defaults, renames some fields and stamps timestamps into others. Modelling them as typed attributes would mean inventing names DSS may ignore, and refreshing them from the instance would diff forever against those rewrites.
+  Triggers, steps and reporters are supplied as JSON rather than as typed blocks. Their shape varies by trigger and step type and between DSS versions, and DSS rewrites what you send, it fills in defaults, renames some fields and stamps timestamps into others. Modelling them as typed attributes would mean inventing names DSS may ignore, and refreshing them from the instance would diff forever against those rewrites.
   So this provider writes them and does not read them back. A change made in the DSS interface to a scenario's triggers or steps will not appear as drift. On terraform import they are read in once, which is also the easiest way to get a definition worth editing: build the scenario in the interface, import it, and copy what comes out.
 ---
 
@@ -12,7 +12,7 @@ description: |-
 
 A scenario in a Dataiku DSS project: what runs, and what makes it run.
 
-Triggers, steps and reporters are supplied as JSON rather than as typed blocks. Their shape varies by trigger and step type and between DSS versions, and DSS rewrites what you send — it fills in defaults, renames some fields and stamps timestamps into others. Modelling them as typed attributes would mean inventing names DSS may ignore, and refreshing them from the instance would diff forever against those rewrites.
+Triggers, steps and reporters are supplied as JSON rather than as typed blocks. Their shape varies by trigger and step type and between DSS versions, and DSS rewrites what you send, it fills in defaults, renames some fields and stamps timestamps into others. Modelling them as typed attributes would mean inventing names DSS may ignore, and refreshing them from the instance would diff forever against those rewrites.
 
 So this provider writes them and does not read them back. A change made in the DSS interface to a scenario's triggers or steps will not appear as drift. On `terraform import` they are read in once, which is also the easiest way to get a definition worth editing: build the scenario in the interface, import it, and copy what comes out.
 
@@ -82,7 +82,7 @@ resource "dataiku_scenario" "scripted" {
 ### Optional
 
 - `active` (Boolean) Whether the scenario's triggers are armed. A scenario with `active = false` only runs when started by hand.
-- `reporters_json` (String, Sensitive) Reporters, as a JSON array — what DSS notifies when the scenario finishes. Written but never read back. May carry webhook URLs and credentials, so it is treated as sensitive.
+- `reporters_json` (String, Sensitive) Reporters, as a JSON array. What DSS notifies when the scenario finishes. Written but never read back. May carry webhook URLs and credentials, so it is treated as sensitive.
 - `script` (String) Python source for a `custom_python` scenario. Ignored for `step_based`. Unlike the JSON attributes this is stored verbatim by DSS, so it is read back and does show drift.
 - `steps_json` (String) Steps, as a JSON array, for a `step_based` scenario. This becomes `params.steps` in the DSS definition. Written but never read back.
 - `tags` (Set of String) Tags applied to the scenario.
@@ -104,7 +104,7 @@ triggers_json = jsonencode([{
 ### Read-Only
 
 - `id` (String) `<project_key>/<scenario_id>`.
-- `scenario_id` (String) Identifier DSS gave the scenario. It is derived from the name rather than random — `Nightly build` becomes `Nightly_build` — so two scenarios with the same name in one project collide. It does not change when the scenario is renamed.
+- `scenario_id` (String) Identifier DSS gave the scenario. It is derived from the name rather than random: `Nightly build` becomes `Nightly_build`, so two scenarios with the same name in one project collide. It does not change when the scenario is renamed.
 
 ## Import
 

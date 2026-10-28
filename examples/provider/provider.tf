@@ -2,7 +2,7 @@ terraform {
   required_providers {
     dataiku = {
       source  = "amrutp24/dataiku"
-      version = "~> 0.1"
+      version = "~> 0.6"
     }
   }
 }

@@ -70,7 +70,7 @@ resource "dataiku_container_image_build_config" "gke" {
 
 ### Optional
 
-- `default_execution_config` (String) Name of the `dataiku_container_execution_config` to run user code in — code recipes and notebooks — for projects that name none. Leave unset to run user code on the DSS host.
+- `default_execution_config` (String) Name of the `dataiku_container_execution_config` to run user code in, meaning code recipes and notebooks, for projects that name none. Leave unset to run user code on the DSS host.
 - `default_execution_config_for_exporters` (String) Name of the execution configuration for custom exporters that can be containerized.
 - `default_execution_config_for_visual_recipes` (String) Name of the execution configuration for visual recipes. DSS ignores this unless containerized execution of visual recipes is enabled on the instance.
 - `default_k8s_cluster_id` (String) Id of the DSS cluster object to use for projects that name no cluster of their own. Applies to container execution and Spark on Kubernetes alike. Leave unset to rely on `use_implicit_k8s_cluster`.

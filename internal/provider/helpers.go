@@ -143,8 +143,8 @@ func nullIfEmpty(s string) types.String {
 
 // writeOnlyString reads a write-only attribute out of the configuration.
 //
-// Write-only values never appear in the plan or in state — that is the point of
-// them — so the usual plan model holds null and the value has to come from the
+// Write-only values never appear in the plan or in state, which is the point
+// of them, so the usual plan model holds null and the value has to come from the
 // config directly. fallback is returned when the write-only attribute is unset,
 // which is how the legacy non-write-only attribute keeps working.
 func writeOnlyString(ctx context.Context, config tfsdk.Config, attribute string, fallback types.String, diags *diag.Diagnostics) string {

@@ -227,7 +227,7 @@ func (r *containerConfigResource) Create(ctx context.Context, req resource.Creat
 			resp.Diagnostics.AddWarning(
 				"Left a partial container configuration on the instance",
 				fmt.Sprintf("After the failure above, removing %s %q did not succeed either: %s\n\n"+
-					"Delete it under Administration → Settings → Containerized execution before "+
+					"Delete it under Administration > Settings > Containerized execution before "+
 					"applying again.", r.typeSuffix, plan.Name.ValueString(), err),
 			)
 		}
