@@ -63,6 +63,45 @@ jobs:
           git diff --compact-summary --exit-code -- docs || \
             (echo "*** Docs are stale. Run 'make docs' and commit the result."; exit 1)
 
+  examples:
+    name: Examples validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 'latest'
+          terraform_wrapper: false
+
+      # Against this commit's provider, not the published one. An example that
+      # uses an argument added since the last release should pass, and one that
+      # uses an argument this commit removed should fail.
+      - name: Build the provider and point Terraform at it
+        run: |
+          mkdir -p "$RUNNER_TEMP/provider-bin"
+          go build -o "$RUNNER_TEMP/provider-bin/terraform-provider-dataiku" .
+          cat > "$RUNNER_TEMP/dev.tfrc" <<EOF
+          provider_installation {
+            dev_overrides {
+              "amrutp24/dataiku" = "$RUNNER_TEMP/provider-bin"
+            }
+            direct {}
+          }
+          EOF
+
+      # The examples are what people copy, and nothing checked them until now:
+      # the usage example shipped run_scenario, which is not an argument, so
+      # anyone who pasted it got an error.
+      - name: Validate every example
+        env:
+          TF_CLI_CONFIG_FILE: ${{ runner.temp }}/dev.tfrc
+        run: python3 scripts/validate-examples.py
+        timeout-minutes: 10
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest
