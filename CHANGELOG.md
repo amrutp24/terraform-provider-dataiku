@@ -4,7 +4,49 @@ All notable changes to this provider are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-10-27
+
+### Added
+
+- `all_spark_kubernetes_configs` and `spark_kubernetes_configs` on
+  `dataiku_code_env`, the Spark half of the selection the container pair
+  covers. Read off a running DSS 15 instance and its own controller, which
+  computes the Spark mode exactly as it computes the container one.
+
+  The two defaults differ, which is the thing to know: a new environment
+  builds for every container configuration and for no Spark on Kubernetes
+  one, because `allContainerConfs` defaults to true and
+  `allSparkKubernetesConfs` to false.
+
+## [0.6.1] - 2026-10-27
+
+### Fixed
+
+- The registry page told everyone to pin `~> 0.1` against a 0.6.0 release.
+  `docs/index.md` is what the registry serves, so that was the first thing a
+  new user copied. Fixed at its source in `examples/provider/provider.tf`.
+- The usage example used `run_scenario`. The attribute is `run_scenarios`, so
+  anyone who pasted that block got an error and had to go and find the real
+  name.
+- The README claimed the container resources work on an unlicensed instance.
+  They pass there only because DSS stores and returns the settings; Dataiku
+  gates containerized execution behind a licence, so the free image verifies
+  the write and the read back and nothing further.
+- `golang.org/x/net` and `google.golang.org/grpc` moved past six advisories
+  between them.
+
+### Added
+
+- Every example under `examples/` is validated in CI, against the provider
+  built from the commit under test. Nothing checked them before, which is how
+  the `run_scenario` bug shipped.
+- The README leads with the Docker quickstart. A disposable DSS and an admin
+  API key are two commands, with no licence key and no interface login.
+  Checked against `dataiku/dss:latest`, which is DSS 15.0.0: 26 of the 27
+  acceptance tests that run against a live instance pass on it. Scenario
+  temporal triggers do not.
+
+## [0.6.0] - 2026-09-16
 
 ### Added
 
@@ -24,6 +66,22 @@ All notable changes to this provider are documented here. The format follows
   configuring it. The field names were recovered by reading a running DSS 15
   instance, and the structure already differs between DSS majors.
 
+- `dataiku_container_settings`, a singleton for the instance-wide defaults:
+  `use_implicit_k8s_cluster`, `default_k8s_cluster_id` and the three default
+  execution configurations. Without the first of those, every containerized
+  activity fails before it starts with "No default Kubernetes cluster
+  selected", however correct the execution configuration is.
+
+  Nothing is created on the instance, so nothing is deleted either: these
+  fields exist whether or not Terraform manages them. Create records what they
+  held first, and Delete puts that back, removing again the fields that were
+  absent.
+
+- `all_container_configs` and `container_configs` on `dataiku_code_env`, which
+  decide the execution configurations an environment's image is built for.
+  These are the two fields behind the "Build for" choice on the environment's
+  Containers tab, and Dataiku documents neither.
+
 - `Client.GeneralSettings` and `Client.UpdateGeneralSettings`, with the
   read-modify-write cycle serialised: both resource types edit one document and
   Terraform applies in parallel, so without the lock two overlapping cycles
@@ -41,6 +99,9 @@ All notable changes to this provider are documented here. The format follows
 - The instance used was a Free Edition with the advanced features trial, not a
   plain Community Edition. Whether unlicensed CE also accepts containerized
   execution is still untested.
+
+- The acceptance suite now runs in CI. It had been skipping every case,
+  because `TF_ACC` was never set, while CI reported green.
 
 - `TestAccCodeEnv` now sets `python_interpreter`, configurable with
   `DATAIKU_TEST_PYTHON_INTERPRETER` and defaulting to `PYTHON312`. Left unset it
