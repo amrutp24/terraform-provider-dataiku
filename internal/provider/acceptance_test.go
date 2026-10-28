@@ -802,12 +802,19 @@ resource "dataiku_code_env" "test" {
 
   all_container_configs = false
   container_configs     = [dataiku_container_execution_config.exec.name]
+
+  # The Spark pair defaults to false with an empty list, so turning the flag
+  # on is the change that proves the write lands rather than matching what
+  # was already there.
+  all_spark_kubernetes_configs = true
 }
 `, name, interpreter, build, exec),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "all_container_configs", "false"),
 					resource.TestCheckResourceAttr("dataiku_code_env.test", "container_configs.#", "1"),
 					resource.TestCheckTypeSetElemAttr("dataiku_code_env.test", "container_configs.*", exec),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "all_spark_kubernetes_configs", "true"),
+					resource.TestCheckResourceAttr("dataiku_code_env.test", "spark_kubernetes_configs.#", "0"),
 					// usable_by_all is stored in the same two places and written the
 					// same way, so this also catches a write that replaced the
 					// document instead of editing it.
