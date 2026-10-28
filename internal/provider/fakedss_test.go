@@ -771,16 +771,22 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 			// rather than falling back to a zero value the provider invented.
 			"allContainerConfs": true,
 			"containerConfs":    []any{},
+			// The Spark pair defaults the other way round: a new environment
+			// builds for every container configuration but for no Spark one.
+			"allSparkKubernetesConfs": false,
+			"sparkKubernetesConfs":    []any{},
 			"desc": map[string]any{
-				"pythonInterpreter":     interpreter,
-				"conda":                 body["conda"] == true,
-				"deploymentMode":        body["deploymentMode"],
-				"installCorePackages":   false,
-				"corePackagesSet":       "PANDAS23",
-				"installJupyterSupport": false,
-				"usableByAll":           true,
-				"allContainerConfs":     true,
-				"containerConfs":        []any{},
+				"pythonInterpreter":       interpreter,
+				"conda":                   body["conda"] == true,
+				"deploymentMode":          body["deploymentMode"],
+				"installCorePackages":     false,
+				"corePackagesSet":         "PANDAS23",
+				"installJupyterSupport":   false,
+				"usableByAll":             true,
+				"allContainerConfs":       true,
+				"containerConfs":          []any{},
+				"allSparkKubernetesConfs": false,
+				"sparkKubernetesConfs":    []any{},
 			},
 		}
 		writeJSON(w, map[string]any{"envName": name})
@@ -814,8 +820,8 @@ func (f *fakeDSS) handleCodeEnvs(w http.ResponseWriter, r *http.Request) {
 // mirrorIntoDesc copies the settings DSS keeps in two places from the top level
 // down into "desc", overwriting what was sent there.
 //
-// A code environment document carries usableByAll, allContainerConfs and
-// containerConfs both at the top level and inside "desc". PUT a document whose
+// A code environment document carries usableByAll and the container and
+// Spark selection fields both at the top level and inside "desc". PUT a document whose
 // two copies disagree and a real instance does not merge them or reject the
 // request: the top-level value wins and "desc" is rewritten from it. Without
 // this the fake would happily hold two different values for one setting, and a
@@ -826,7 +832,11 @@ func mirrorIntoDesc(env map[string]any) {
 	if !ok {
 		return
 	}
-	for _, key := range []string{"usableByAll", "allContainerConfs", "containerConfs"} {
+	for _, key := range []string{
+		"usableByAll",
+		"allContainerConfs", "containerConfs",
+		"allSparkKubernetesConfs", "sparkKubernetesConfs",
+	} {
 		if value, present := env[key]; present {
 			desc[key] = value
 		}

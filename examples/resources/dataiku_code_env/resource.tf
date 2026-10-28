@@ -45,6 +45,12 @@ resource "dataiku_code_env" "containerized" {
 
   all_container_configs = false
   container_configs     = [dataiku_container_execution_config.gke.name]
+
+  # The Spark half of the same choice. It defaults to false with an empty
+  # list, so an environment builds for every container configuration but for
+  # no Spark on Kubernetes one until you say otherwise.
+  all_spark_kubernetes_configs = false
+  spark_kubernetes_configs     = []
 }
 
 resource "dataiku_container_execution_config" "gke" {

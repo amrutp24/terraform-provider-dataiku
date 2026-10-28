@@ -49,6 +49,8 @@ type codeEnvResourceModel struct {
 	InstallPackagesOnChange types.Bool   `tfsdk:"install_packages_on_change"`
 	AllContainerConfigs     types.Bool   `tfsdk:"all_container_configs"`
 	ContainerConfigs        types.Set    `tfsdk:"container_configs"`
+	AllSparkK8sConfigs      types.Bool   `tfsdk:"all_spark_kubernetes_configs"`
+	SparkK8sConfigs         types.Set    `tfsdk:"spark_kubernetes_configs"`
 }
 
 func (r *codeEnvResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -175,6 +177,28 @@ func (r *codeEnvResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 					"own changes nothing.\n\n" +
 					"A set rather than a list because the selection is a membership list: which " +
 					"configurations are named matters and the order they are named in does not.",
+			},
+			"all_spark_kubernetes_configs": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				MarkdownDescription: "Build this environment's image for every Spark on Kubernetes " +
+					"configuration on the instance. DSS defaults this to `false` for a new " +
+					"environment, unlike `all_container_configs`, which defaults to `true`.\n\n" +
+					"This is the Spark half of the same \"Build for\" choice, and it works the same " +
+					"way: `false` with `spark_kubernetes_configs` listed builds for those, and " +
+					"`false` with the list empty builds for none.",
+			},
+			"spark_kubernetes_configs": schema.SetAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				MarkdownDescription: "Names of the Spark on Kubernetes configurations to build this " +
+					"environment's image for.\n\n" +
+					"**Only consulted when `all_spark_kubernetes_configs` is `false`.** As with " +
+					"`container_configs`, DSS stores the list either way, so a list set on its own " +
+					"while the flag is true changes nothing.\n\n" +
+					"A set rather than a list, for the same reason: the selection is a membership " +
+					"list and its order carries nothing.",
 			},
 			"install_packages_on_change": schema.BoolAttribute{
 				Optional: true,
@@ -394,6 +418,10 @@ func (r *codeEnvResource) applySettings(ctx context.Context, plan *codeEnvResour
 	if convert.HasError() {
 		return fmt.Errorf("container_configs could not be read: %s", convert.Errors()[0].Detail())
 	}
+	sparkK8sConfigs := fromStringSet(ctx, plan.SparkK8sConfigs, &convert)
+	if convert.HasError() {
+		return fmt.Errorf("spark_kubernetes_configs could not be read: %s", convert.Errors()[0].Detail())
+	}
 
 	return r.client.UpdateCodeEnv(ctx, plan.Lang.ValueString(), plan.Name.ValueString(), func(env map[string]any) {
 		if !plan.Packages.IsNull() && !plan.Packages.IsUnknown() {
@@ -416,6 +444,12 @@ func (r *codeEnvResource) applySettings(ctx context.Context, plan *codeEnvResour
 		}
 		if !plan.ContainerConfigs.IsNull() && !plan.ContainerConfigs.IsUnknown() {
 			setCodeEnvField(env, "containerConfs", containerConfigs)
+		}
+		if !plan.AllSparkK8sConfigs.IsNull() && !plan.AllSparkK8sConfigs.IsUnknown() {
+			setCodeEnvField(env, "allSparkKubernetesConfs", plan.AllSparkK8sConfigs.ValueBool())
+		}
+		if !plan.SparkK8sConfigs.IsNull() && !plan.SparkK8sConfigs.IsUnknown() {
+			setCodeEnvField(env, "sparkKubernetesConfs", sparkK8sConfigs)
 		}
 	})
 }
@@ -481,6 +515,8 @@ func (r *codeEnvResource) readInto(ctx context.Context, lang, name string, model
 	model.UsableByAll = types.BoolValue(codeEnvBool(env, "usableByAll"))
 	model.AllContainerConfigs = types.BoolValue(codeEnvBool(env, "allContainerConfs"))
 	model.ContainerConfigs = toStringSet(ctx, codeEnvStringSlice(env, "containerConfs"), &diags)
+	model.AllSparkK8sConfigs = types.BoolValue(codeEnvBool(env, "allSparkKubernetesConfs"))
+	model.SparkK8sConfigs = toStringSet(ctx, codeEnvStringSlice(env, "sparkKubernetesConfs"), &diags)
 
 	// install_packages_on_change only exists in configuration, so a fresh
 	// import has nothing to read it from.

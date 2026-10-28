@@ -63,6 +63,12 @@ resource "dataiku_code_env" "containerized" {
 
   all_container_configs = false
   container_configs     = [dataiku_container_execution_config.gke.name]
+
+  # The Spark half of the same choice. It defaults to false with an empty
+  # list, so an environment builds for every container configuration but for
+  # no Spark on Kubernetes one until you say otherwise.
+  all_spark_kubernetes_configs = false
+  spark_kubernetes_configs     = []
 }
 
 resource "dataiku_container_execution_config" "gke" {
@@ -90,6 +96,9 @@ resource "dataiku_container_execution_config" "gke" {
 - `all_container_configs` (Boolean) Build this environment's container image for every containerized execution configuration on the instance. DSS defaults this to `true` for a new environment.
 
 This is the "Build for" choice on the environment's Containers tab. Set it to `false` and list the configurations in `container_configs` to build for some of them, or to `false` with `container_configs` empty to build for none.
+- `all_spark_kubernetes_configs` (Boolean) Build this environment's image for every Spark on Kubernetes configuration on the instance. DSS defaults this to `false` for a new environment, unlike `all_container_configs`, which defaults to `true`.
+
+This is the Spark half of the same "Build for" choice, and it works the same way: `false` with `spark_kubernetes_configs` listed builds for those, and `false` with the list empty builds for none.
 - `conda` (Boolean) Build the environment with conda rather than virtualenv. Changing this forces a new environment.
 - `container_configs` (Set of String) Names of the containerized execution configurations to build this environment's image for, as in the `name` of a `dataiku_container_execution_config`.
 
@@ -107,6 +116,11 @@ A set rather than a list because the selection is a membership list: which confi
 **Set this rather than relying on the default.** DSS falls back to an interpreter of its own choosing, and that version is frequently absent from a modern host: a DSS 15 instance on Ubuntu 24.04, which ships Python 3.12 only, defaults to `python3.9` and the build fails with `python3.9: command not found`. DSS reports the environment as created regardless, so the failure surfaces later as a 500 about a missing `desc.json`.
 
 Check what the instance has with `ls /usr/bin/python3*`. DSS 15 recognises `PYTHON34` through `PYTHON315`.
+- `spark_kubernetes_configs` (Set of String) Names of the Spark on Kubernetes configurations to build this environment's image for.
+
+**Only consulted when `all_spark_kubernetes_configs` is `false`.** As with `container_configs`, DSS stores the list either way, so a list set on its own while the flag is true changes nothing.
+
+A set rather than a list, for the same reason: the selection is a membership list and its order carries nothing.
 - `usable_by_all` (Boolean) Whether every user may select this environment. When false, DSS restricts it to the groups configured on the instance.
 
 ### Read-Only
