@@ -133,7 +133,7 @@ resource "dataiku_project_permissions" "analytics" {
     group                 = dataiku_group.data_scientists.name
     read_project_content  = true
     write_project_content = true
-    run_scenario          = true
+    run_scenarios         = true
   }
 }
 ```
