@@ -274,6 +274,19 @@ resource "dataiku_group" "test" {
 					resource.TestCheckResourceAttr("dataiku_group.test", "permissions.mayCreateProjects", "false"),
 				),
 			},
+			{
+				ResourceName:      "dataiku_group.test",
+				ImportState:       true,
+				ImportStateId:     name,
+				ImportStateVerify: true,
+				// An imported group carries no abilities. The permissions map
+				// tracks only the keys configuration names, because the set of
+				// may* flags differs between DSS versions and editions, and an
+				// import has no configuration to read. Write them yourself after
+				// importing, using the data source to discover the names this
+				// instance supports.
+				ImportStateVerifyIgnore: []string{"permissions.%", "permissions.mayCreateProjects"},
+			},
 		},
 	})
 
@@ -432,6 +445,17 @@ resource "dataiku_connection" "test" {
 					},
 				),
 			},
+			{
+				ResourceName:      "dataiku_connection.test",
+				ImportState:       true,
+				ImportStateId:     name,
+				ImportStateVerify: true,
+				// DSS redacts secrets when reading a connection back, so the
+				// imported params cannot match what was written. Import reads the
+				// redacted form in once as a starting point, which is the
+				// documented behaviour rather than a gap in the test.
+				ImportStateVerifyIgnore: []string{"params_json"},
+			},
 		},
 	})
 }
@@ -515,6 +539,12 @@ resource "dataiku_project_permissions" "test" {
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.1.read_dashboards", "true"),
 				),
 			},
+			{
+				ResourceName:      "dataiku_project_permissions.test",
+				ImportState:       true,
+				ImportStateId:     key,
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -570,6 +600,12 @@ resource "dataiku_project_variables" "test" {
 }
 `,
 				PlanOnly: true,
+			},
+			{
+				ResourceName:      "dataiku_project_variables.test",
+				ImportState:       true,
+				ImportStateId:     key,
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -1044,6 +1080,17 @@ resource "dataiku_scenario" "test" {
 				// than diffing against what DSS rewrote them to.
 				Config:   project + testAccScenarioRenamedConfig,
 				PlanOnly: true,
+			},
+			{
+				ResourceName:      "dataiku_scenario.test",
+				ImportState:       true,
+				ImportStateId:     key + "/Nightly_build",
+				ImportStateVerify: true,
+				// DSS returns the whole scenario document merged with its own
+				// defaults, so the triggers it reports are not byte-for-byte what
+				// was sent. The id, name and project are what import has to get
+				// right.
+				ImportStateVerifyIgnore: []string{"triggers_json", "steps_json", "params_json", "reporters_json"},
 			},
 		},
 	})

@@ -79,3 +79,19 @@ resource "dataiku_container_image_build_config" "gke" {
 ### Read-Only
 
 - `id` (String) Always `container_settings`. The instance has exactly one of these.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# There is one of these per instance, so the id is ignored and any value
+# works. "container_settings" is what the resource reports afterwards.
+terraform import dataiku_container_settings.instance container_settings
+
+# Importing records no previous values, so a later destroy cannot put the
+# settings back the way it found them and will say so rather than guess. Only
+# a resource this provider created carries that record.
+```

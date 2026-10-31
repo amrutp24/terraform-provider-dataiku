@@ -84,18 +84,38 @@ and nothing further.
 ## Trying it on an instance you already have
 
 Every resource supports `terraform import`, which is the safe way in. Import
-the projects, groups and connections an instance already has, run `plan`, and
-read what comes back before you let Terraform change anything. Nothing is
-created or destroyed by an import.
+what an instance already has, run `plan`, and read what comes back before you
+let Terraform change anything. An import creates and destroys nothing, and
+each resource's page gives its import id.
+
+Two resources need a word of warning before you import them.
+`dataiku_container_image_build_config` and `dataiku_container_execution_config`
+seed `settings_json` empty, because the instance holds your settings merged
+with every default DSS added and cannot tell you which were yours. Read
+`effective_json` after importing and write `settings_json` from that.
+`dataiku_container_settings` records no previous values on import, so a later
+destroy will say it cannot put them back rather than guess.
 
 It is 0.x, so pin a minor version: the schema can still change.
 
-What has been exercised against a real DSS 15 instance, rather than only
-against the test fake: projects, groups, users, connections and scenarios, and
-the whole containerized execution path end to end on GCP, from cluster and
-registry through a base image build to a recipe pod reaching DONE. The
-acceptance suite runs against an in-process fake by default, and against your
-own instance if you set `DATAIKU_HOST` and `DATAIKU_API_KEY`.
+### What has been run against a real instance
+
+The acceptance suite runs against an in-process fake by default, and against
+your own instance when `DATAIKU_HOST` and `DATAIKU_API_KEY` are set. This is
+what the second kind of run has actually covered:
+
+| Resource | Against a real DSS |
+| --- | --- |
+| `dataiku_project`, `_permissions`, `_variables`, `dataiku_project_folder` | Full lifecycle, including import. |
+| `dataiku_user`, `dataiku_group`, `dataiku_connection` | Full lifecycle, including the write-only password and connection parameters. |
+| `dataiku_code_env` | Full lifecycle, including a real package install. |
+| `dataiku_scenario` | Custom Python scenarios, yes. Temporal triggers need a licence that covers them and were not exercised. |
+| `dataiku_container_image_build_config`, `_execution_config`, `dataiku_container_settings` | The writes and read-backs, yes. The execution they configure is licence-gated, and was run end to end once, on a licensed GCP instance: cluster and registry through a base image build to a recipe pod reaching `DONE`. |
+| All six data sources | Yes. |
+
+The most recent full run was against DSS 15.0.0 in Docker with no licence
+installed, where 26 of the 27 live cases passed. The exception was the
+scenario temporal trigger above.
 
 ## Usage
 

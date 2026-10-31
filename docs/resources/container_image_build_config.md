@@ -74,3 +74,20 @@ Every key set here is read back after the write and compared. A key DSS drops or
 
 - `effective_json` (String) The whole entry as DSS stores it, including everything it added. Useful for discovering the fields this instance's version actually supports: set a configuration in the DSS interface, import it, and read this.
 - `id` (String) The configuration name. Same value as `name`.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# Image build configurations are imported by name.
+terraform import dataiku_container_image_build_config.gke gke-build
+
+# settings_json is your intent and cannot be recovered from the instance,
+# which holds it merged with every default DSS added. Import seeds it empty,
+# so the first plan shows what your configuration would set. Read
+# effective_json to see what is actually there, and build settings_json from
+# that before applying.
+```
