@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"sort"
@@ -85,15 +87,70 @@ func testAccPythonInterpreter(t *testing.T) string {
 // what yours does.
 func testAccUserProfiles(t *testing.T) (string, string) {
 	t.Helper()
+
 	first := os.Getenv("DATAIKU_TEST_USER_PROFILE")
-	if first == "" {
-		first = "DESIGNER"
-	}
 	second := os.Getenv("DATAIKU_TEST_USER_PROFILE_ALT")
+	if first != "" && second != "" {
+		return first, second
+	}
+
+	// Ask the instance rather than guessing. A profile its licence does not
+	// define is stored and then breaks every later project create, user edit
+	// and user delete, with no way back through the API or dsscli, so a
+	// hardcoded default is a way to destroy the instance under test. This
+	// suite did exactly that: it defaulted to DESIGNER, which an unlicensed
+	// DSS 15 does not define.
+	licensed := testAccLicensedProfiles(t)
+	if len(licensed) == 0 {
+		t.Skip("the instance reports no licensed user profiles, so there is none safe to use")
+	}
+	if first == "" {
+		first = licensed[0]
+	}
 	if second == "" {
-		second = "NONE"
+		second = licensed[len(licensed)-1]
 	}
 	return first, second
+}
+
+// testAccLicensedProfiles reads the profiles the target instance licences,
+// sorted, from the same endpoint the provider checks before writing a user.
+func testAccLicensedProfiles(t *testing.T) []string {
+	t.Helper()
+
+	host := os.Getenv("DATAIKU_HOST")
+	key := os.Getenv("DATAIKU_API_KEY")
+	if host == "" {
+		t.Fatal("DATAIKU_HOST is unset; testAccSetup should have pointed this at the fake")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(host, "/")+"/public/api/admin/licensing/status", nil)
+	if err != nil {
+		t.Fatalf("building the licensing request failed: %s", err)
+	}
+	req.SetBasicAuth(key, "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("reading the licensing status failed: %s", err)
+	}
+	defer resp.Body.Close()
+
+	var status struct {
+		Limits struct {
+			LicensedProfiles map[string]any `json:"licensedProfiles"`
+		} `json:"limits"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatalf("decoding the licensing status failed: %s", err)
+	}
+
+	out := make([]string, 0, len(status.Limits.LicensedProfiles))
+	for name := range status.Limits.LicensedProfiles {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func TestAccProject(t *testing.T) {
@@ -616,6 +673,7 @@ func TestAccDataSources(t *testing.T) {
 	key := randProjectKey(t)
 	group := randName(t, "grp")
 	login := randName(t, "usr")
+	profile, _ := testAccUserProfiles(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -638,6 +696,7 @@ resource "dataiku_user" "test" {
   login        = %[3]q
   display_name = "DS User"
   password     = "secret"
+  user_profile = %[4]q
 }
 
 data "dataiku_project" "test" {
@@ -655,7 +714,7 @@ data "dataiku_group" "test" {
 data "dataiku_user" "test" {
   login = dataiku_user.test.login
 }
-`, key, group, login),
+`, key, group, login, profile),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "name", "Data source test"),
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "owner", "admin"),
@@ -982,7 +1041,11 @@ data "dataiku_project_folder" "test" {
 }
 
 func TestAccScenario(t *testing.T) {
-	testAccSetup(t)
+	// The fake accepts any trigger, so this only needs guarding when it is
+	// pointed at a real instance, where the licence decides.
+	if testAccSetup(t) == nil && !testAccLicenseFeature(t, "temporalTriggerAllowed") {
+		t.Skip("this instance does not licence temporal triggers")
+	}
 	key := randProjectKey(t)
 
 	project := fmt.Sprintf(`
@@ -1132,6 +1195,9 @@ resource "dataiku_scenario" "test" {
 func TestAccScenarioCustomPython(t *testing.T) {
 	if testAccSetup(t) != nil {
 		t.Skip("custom_python scenarios are only exercised against a real instance")
+	}
+	if !testAccLicenseFeature(t, "advancedScenarioStepsAllowed") {
+		t.Skip("this instance does not licence advanced scenario steps, so a Python scenario cannot be created")
 	}
 	key := randProjectKey(t)
 
@@ -1425,4 +1491,100 @@ func checkStateHasNoSecret(resourceName, secret string) resource.TestCheckFunc {
 		}
 		return nil
 	}
+}
+
+// A user with no licence profile is not a configuration mistake you find out
+// about later: DSS accepts it, stores userProfile as null, and the instance
+// then fails every project create, user edit and user delete, through the API
+// and through dsscli alike. Reproduced on a fresh DSS 15.0.0 with no licence.
+// The provider refuses at plan time instead.
+func TestAccUserRequiresAProfile(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "No profile"
+  password     = "An0ther-passw0rd!"
+}
+`, login),
+				ExpectError: regexp.MustCompile(`user_profile is required`),
+			},
+		},
+	})
+}
+
+// Sending a profile the instance does not licence is unrecoverable: DSS
+// stores it, and every later project create, user edit and user delete fails
+// inside its licence enforcement, through the API and through dsscli alike.
+// Confirmed against a fresh DSS 15.0.0 that licences only NONE, where a user
+// created with DESIGNER broke the instance. The provider checks before
+// writing rather than finding out afterwards.
+func TestAccUserRejectsAnUnlicensedProfile(t *testing.T) {
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it would corrupt a real instance if the check regressed")
+	}
+	login := randName(t, "usr")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Unlicensed"
+  password     = "An0ther-passw0rd!"
+  user_profile = "NOT_A_LICENSED_PROFILE"
+}
+`, login),
+				ExpectError: regexp.MustCompile(`not licensed on this instance`),
+			},
+		},
+	})
+}
+
+// testAccLicenseFeature reports whether the target instance licences a named
+// feature, from the same endpoint the provider reads before writing a user.
+//
+// Which features are on differs between instances, and not in the direction
+// you would guess: one unlicensed DSS 15.0.0 allowed temporal triggers and
+// refused custom Python scenario steps, and another of the same image did the
+// opposite. Hardcoding either expectation makes the suite fail for a reason
+// that has nothing to do with the provider, so the tests ask instead.
+func testAccLicenseFeature(t *testing.T, name string) bool {
+	t.Helper()
+
+	host := os.Getenv("DATAIKU_HOST")
+	if host == "" {
+		t.Fatal("DATAIKU_HOST is unset; testAccSetup should have pointed this at the fake")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(host, "/")+"/public/api/admin/licensing/status", nil)
+	if err != nil {
+		t.Fatalf("building the licensing request failed: %s", err)
+	}
+	req.SetBasicAuth(os.Getenv("DATAIKU_API_KEY"), "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("reading the licensing status failed: %s", err)
+	}
+	defer resp.Body.Close()
+
+	var status struct {
+		Features map[string]any `json:"features"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatalf("decoding the licensing status failed: %s", err)
+	}
+
+	allowed, ok := status.Features[name].(bool)
+	return ok && allowed
 }

@@ -3,6 +3,7 @@ package dataiku
 import (
 	"context"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -335,4 +336,39 @@ func (c *Client) TestConnection(ctx context.Context, name string) (bool, error) 
 	}
 	ok, _ := out["connectionOK"].(bool)
 	return ok, nil
+}
+
+// LicensedUserProfiles returns the user profiles this instance's licence
+// defines, sorted.
+//
+// This exists because of a failure that cannot be undone. DSS accepts a user
+// whose userProfile it does not recognise, stores it, and from then on every
+// project create, user edit and user delete fails with
+//
+//	NullPointerException: Cannot read field "profile" because the return value
+//	of "LicenseEnforcementService.getUserProfileByNameOrFallback(String)" is null
+//
+// Neither the public API nor dsscli can repair it, because both go through
+// that same lookup. Confirmed on a fresh DSS 15.0.0 whose licence defines only
+// NONE: a user created with NONE was harmless, and the next user created with
+// DESIGNER broke the instance.
+//
+// Which profiles exist depends entirely on the licence, so the only way to
+// check a value before sending it is to ask the instance.
+func (c *Client) LicensedUserProfiles(ctx context.Context) ([]string, error) {
+	var status struct {
+		Limits struct {
+			LicensedProfiles map[string]any `json:"licensedProfiles"`
+		} `json:"limits"`
+	}
+	if err := c.get(ctx, "/admin/licensing/status", nil, &status); err != nil {
+		return nil, err
+	}
+
+	profiles := make([]string, 0, len(status.Limits.LicensedProfiles))
+	for name := range status.Limits.LicensedProfiles {
+		profiles = append(profiles, name)
+	}
+	sort.Strings(profiles)
+	return profiles, nil
 }

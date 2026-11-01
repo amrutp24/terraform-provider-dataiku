@@ -101,8 +101,8 @@ It is 0.x, so pin a minor version: the schema can still change.
 ### What has been run against a real instance
 
 The acceptance suite runs against an in-process fake by default, and against
-your own instance when `DATAIKU_HOST` and `DATAIKU_API_KEY` are set. This is
-what the second kind of run has actually covered:
+your own instance when `DATAIKU_HOST` and `DATAIKU_API_KEY` are set, through
+`make testacc`. This is what the second kind of run has actually covered:
 
 | Resource | Against a real DSS |
 | --- | --- |
@@ -300,6 +300,12 @@ make testacc
 ```
 
 They are skipped unless `TF_ACC=1` is set, which `make testacc` does for you.
+
+Use `make testacc` rather than `go test` for a run against a real instance.
+Go's default test timeout is ten minutes, and a live run takes longer than
+that: `TestAccCodeEnv` alone runs pip on the instance and takes a couple of
+minutes. Past the deadline the binary panics part way through, which looks
+like a provider fault and is not one. The target passes `-timeout 30m`.
 
 ## Contributing
 

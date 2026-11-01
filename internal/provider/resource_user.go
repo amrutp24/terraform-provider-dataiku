@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -25,6 +27,7 @@ var (
 	_ resource.ResourceWithConfigure        = (*userResource)(nil)
 	_ resource.ResourceWithImportState      = (*userResource)(nil)
 	_ resource.ResourceWithConfigValidators = (*userResource)(nil)
+	_ resource.ResourceWithValidateConfig   = (*userResource)(nil)
 )
 
 // NewUserResource returns the dataiku_user resource.
@@ -173,6 +176,48 @@ func (r *userResource) ConfigValidators(_ context.Context) []resource.ConfigVali
 	}
 }
 
+// ValidateConfig refuses to create a user without a licence profile.
+//
+// DSS accepts the create and stores userProfile as null, and from that moment
+// the instance is broken: creating a project, editing that user and deleting
+// that user all fail with
+//
+//	NullPointerException: Cannot read field "profile" because the return value
+//	of "LicenseEnforcementService.getUserProfileByNameOrFallback(String)" is null
+//
+// Neither the public API nor dsscli can undo it, because both paths go through
+// the same lookup. Reproduced on a fresh DSS 15.0.0 with no licence installed:
+// a project created, one profile-less user added, and the next identical
+// project create returned 500.
+//
+// So this is a plan-time error rather than a warning. The alternative is an
+// apply that bricks the instance it was pointed at.
+func (r *userResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config userResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Unknown is fine: the value comes from somewhere Terraform has not
+	// resolved yet, and will be known by apply.
+	if !config.UserProfile.IsNull() {
+		return
+	}
+
+	resp.Diagnostics.AddAttributeError(
+		path.Root("user_profile"),
+		"user_profile is required to create a user",
+		"DSS stores a user with no profile and then cannot read it back. Creating a "+
+			"project, editing the user and deleting the user all fail afterwards, and "+
+			"neither the public API nor dsscli can recover the instance.\n\n"+
+			"Set user_profile to a profile this instance's licence defines. Which ones "+
+			"exist depends entirely on the licence, so read them from the instance "+
+			"rather than guessing: an unlicensed DSS 15 defines only NONE, and sending "+
+			"DESIGNER to it causes exactly the failure above.",
+	)
+}
+
 func (r *userResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFromResourceConfigure(req, &resp.Diagnostics)
 }
@@ -201,6 +246,11 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 		Groups:      groups,
 		UserProfile: plan.UserProfile.ValueString(),
 		Email:       plan.Email.ValueString(),
+	}
+
+	r.checkProfileIsLicensed(ctx, plan.UserProfile, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	if err := r.client.CreateUser(ctx, createReq); err != nil {
@@ -399,4 +449,54 @@ func managedGroupsList(ctx context.Context, managed types.List, actual []string,
 		}
 	}
 	return toStringList(ctx, kept, diags)
+}
+
+// checkProfileIsLicensed refuses a user profile the instance does not define.
+//
+// Sending one is not a recoverable mistake. DSS accepts the write, and every
+// later project create, user edit and user delete fails with a null
+// dereference inside its licence enforcement, through the public API and
+// through dsscli alike. The instance has to be rebuilt.
+//
+// Confirmed on a fresh DSS 15.0.0 whose licence defines only NONE: a user
+// created with NONE left the instance working, and the next user created with
+// DESIGNER broke it.
+//
+// A plan-time validator cannot do this, because the set of profiles is a
+// property of the instance rather than of the configuration, so the check
+// belongs here, immediately before the write.
+func (r *userResource) checkProfileIsLicensed(ctx context.Context, profile types.String, diags *diag.Diagnostics) {
+	wanted := profile.ValueString()
+	if wanted == "" {
+		return
+	}
+
+	licensed, err := r.client.LicensedUserProfiles(ctx)
+	if err != nil {
+		// Not fatal. An instance that will not report its licence is not a
+		// reason to refuse to work, and the write may well be fine.
+		diags.AddWarning(
+			"Could not check which user profiles this instance licences",
+			fmt.Sprintf("Reading the licensing status failed: %s\n\n"+
+				"Proceeding anyway. If %q is not a profile this instance defines, DSS will "+
+				"store it and then fail every later project create, user edit and user "+
+				"delete, with no way back through the API.", err, wanted),
+		)
+		return
+	}
+
+	if len(licensed) == 0 || slices.Contains(licensed, wanted) {
+		return
+	}
+
+	diags.AddAttributeError(
+		path.Root("user_profile"),
+		"user_profile is not licensed on this instance",
+		fmt.Sprintf("This instance's licence defines %s, and not %q.\n\n"+
+			"Sending an undefined profile is not recoverable: DSS stores it, and every "+
+			"later project create, user edit and user delete then fails inside its "+
+			"licence enforcement, through the API and through dsscli alike. The "+
+			"instance has to be rebuilt, so this apply stops here instead.",
+			strings.Join(licensed, ", "), wanted),
+	)
 }
