@@ -59,6 +59,8 @@ resource "dataiku_user" "contractor" {
 - `groups` (List of String) Names of the groups the user belongs to.
 
 This list is the set of memberships Terraform manages, not necessarily the user's complete membership. DSS attaches a per-user group of its own when a user is created through the API, and an LDAP or SSO mapping can add more; those are left alone and are not reported here, so they never show up as drift. Removing a group from this list does remove that membership. On `terraform import` the user's full membership is adopted.
+
+That per-user group is not necessarily harmless. On DSS 15.0.0 it is named `<login>-<creator>-<random>` and is created with its `admin` flag set, including for a user whose profile is `NONE` and whose `groups` is empty, so a user created through the API can carry more than its profile suggests. DSS reports no effective admin flag on the user, so read the group itself if that matters to you. The group also outlives the user: deleting the user leaves it behind.
 - `password` (String, Sensitive) Password for a `LOCAL` user. DSS never returns the password, so this provider cannot detect a password changed outside Terraform; it only writes the value when it changes in configuration. Leave unset for `LDAP` users.
 
 **This value is stored in Terraform state.** Prefer `password_wo`, which is not.
@@ -74,7 +76,9 @@ password_wo_version = "2"
 Requires Terraform 1.11 or later. Conflicts with `password`.
 - `password_wo_version` (String) An arbitrary marker whose change tells the provider to send `password_wo` again. Any value works: a counter, a date, a hash of the secret. Required alongside `password_wo`, since without it a rotated password would never reach the instance.
 - `source_type` (String) Where the user is defined. One of `LOCAL` or `LDAP`. Defaults to `LOCAL`. Changing this forces a new user.
-- `user_profile` (String) Licence profile assigned to the user, for example `DESIGNER`, `FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends entirely on your Dataiku licence, so this provider neither restricts the value nor defaults it: leave it unset and DSS assigns its own fallback profile, which is then read back into state. Read `/public/api/admin/licensing/status` to see what your instance licenses.
+- `user_profile` (String) Licence profile assigned to the user, for example `DESIGNER`, `FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends entirely on your Dataiku licence. Read `/public/api/admin/licensing/status` to see what your instance licenses, or use the `dataiku_user` data source.
+
+Optional in the schema but required in practice: this provider refuses a user with no profile, and refuses a profile the instance does not licence, both at plan time. That is not strictness for its own sake. DSS accepts either one, answers 200, stores it, and then fails every later project create, user edit and user delete inside its licence enforcement, through the API and through dsscli alike, with no way back. Checking first is the only way to avoid losing the instance.
 
 ### Read-Only
 
