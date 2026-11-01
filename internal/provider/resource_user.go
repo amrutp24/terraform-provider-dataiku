@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -25,6 +27,8 @@ var (
 	_ resource.ResourceWithConfigure        = (*userResource)(nil)
 	_ resource.ResourceWithImportState      = (*userResource)(nil)
 	_ resource.ResourceWithConfigValidators = (*userResource)(nil)
+	_ resource.ResourceWithValidateConfig   = (*userResource)(nil)
+	_ resource.ResourceWithModifyPlan       = (*userResource)(nil)
 )
 
 // NewUserResource returns the dataiku_user resource.
@@ -127,9 +131,14 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Computed: true,
 				MarkdownDescription: "Licence profile assigned to the user, for example `DESIGNER`, " +
 					"`FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends " +
-					"entirely on your Dataiku licence, so this provider neither restricts the value nor " +
-					"defaults it: leave it unset and DSS assigns its own fallback profile, which is then read " +
-					"back into state. Read `/public/api/admin/licensing/status` to see what your instance licenses.",
+					"entirely on your Dataiku licence. Read `/public/api/admin/licensing/status` to see what " +
+					"your instance licenses, or use the `dataiku_user` data source.\n\n" +
+					"Optional in the schema but required in practice: this provider refuses a user with no " +
+					"profile, and refuses a profile the instance does not licence, both while planning. That is " +
+					"not strictness for its own sake. DSS accepts either one, answers 200, stores it, and then " +
+					"fails every later project create, user edit and user delete inside its licence " +
+					"enforcement, through the API and through dsscli alike, with no way back. Checking first " +
+					"is the only way to avoid losing the instance.",
 				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"groups": schema.ListAttribute{
@@ -141,7 +150,13 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 					"complete membership. DSS attaches a per-user group of its own when a user is created " +
 					"through the API, and an LDAP or SSO mapping can add more; those are left alone and are " +
 					"not reported here, so they never show up as drift. Removing a group from this list does " +
-					"remove that membership. On `terraform import` the user's full membership is adopted.",
+					"remove that membership. On `terraform import` the user's full membership is adopted.\n\n" +
+					"That per-user group is not necessarily harmless. On DSS 15.0.0 it is named " +
+					"`<login>-<creator>-<random>` and is created with its `admin` flag set, including " +
+					"for a user whose profile is `NONE` and whose `groups` is empty, so a user created " +
+					"through the API can carry more than its profile suggests. DSS reports no effective " +
+					"admin flag on the user, so read the group itself if that matters to you. The group " +
+					"also outlives the user: deleting the user leaves it behind.",
 			},
 			"enabled": schema.BoolAttribute{
 				Optional:            true,
@@ -173,6 +188,75 @@ func (r *userResource) ConfigValidators(_ context.Context) []resource.ConfigVali
 	}
 }
 
+// ValidateConfig refuses to create a user without a licence profile.
+//
+// DSS accepts the create and stores userProfile as null, and from that moment
+// the instance is broken: creating a project, editing that user and deleting
+// that user all fail with
+//
+//	NullPointerException: Cannot read field "profile" because the return value
+//	of "LicenseEnforcementService.getUserProfileByNameOrFallback(String)" is null
+//
+// Neither the public API nor dsscli can undo it, because both paths go through
+// the same lookup. Reproduced on a fresh DSS 15.0.0 with no licence installed:
+// a project created, one profile-less user added, and the next identical
+// project create returned 500.
+//
+// So this is a plan-time error rather than a warning. The alternative is an
+// apply that bricks the instance it was pointed at.
+func (r *userResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config userResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Unknown is fine: the value comes from somewhere Terraform has not
+	// resolved yet, and will be known by apply.
+	if !config.UserProfile.IsNull() {
+		return
+	}
+
+	resp.Diagnostics.AddAttributeError(
+		path.Root("user_profile"),
+		"user_profile is required to create a user",
+		"DSS stores a user with no profile and then cannot read it back. Creating a "+
+			"project, editing the user and deleting the user all fail afterwards, and "+
+			"neither the public API nor dsscli can recover the instance.\n\n"+
+			"Set user_profile to a profile this instance's licence defines. Which ones "+
+			"exist depends entirely on the licence, so read them from the instance "+
+			"rather than guessing: an unlicensed DSS 15 defines only NONE, and sending "+
+			"DESIGNER to it causes exactly the failure above.",
+	)
+}
+
+// ModifyPlan refuses an unlicensed profile while planning.
+//
+// The check needs the instance, so it cannot live in ValidateConfig, which
+// runs before the provider is configured. ModifyPlan runs after Configure, so
+// terraform plan can say no here instead of an apply failing part way along.
+func (r *userResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// A destroy plan has no plan to read, and nothing to check.
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+	// Plans are also walked before Configure has run, during validation.
+	if r.client == nil {
+		return
+	}
+
+	var plan userResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// An unknown profile reads as empty here and is skipped, the same as a
+	// null one: it comes from somewhere Terraform has not resolved yet, and
+	// Create and Update check again before writing.
+	r.checkProfileIsLicensed(ctx, plan.UserProfile, &resp.Diagnostics)
+}
+
 func (r *userResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFromResourceConfigure(req, &resp.Diagnostics)
 }
@@ -201,6 +285,11 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 		Groups:      groups,
 		UserProfile: plan.UserProfile.ValueString(),
 		Email:       plan.Email.ValueString(),
+	}
+
+	r.checkProfileIsLicensed(ctx, plan.UserProfile, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	if err := r.client.CreateUser(ctx, createReq); err != nil {
@@ -281,6 +370,13 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 	rotateWriteOnly := passwordWO != "" && !plan.PasswordWOVersion.Equal(state.PasswordWOVersion)
 	passwordChanged := !plan.Password.Equal(state.Password) && !plan.Password.IsNull()
+
+	// Moving an existing user onto an unlicensed profile breaks the instance
+	// exactly as creating one does, and this path had no check at all.
+	r.checkProfileIsLicensed(ctx, plan.UserProfile, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	err := r.client.UpdateUser(ctx, login, func(u map[string]any) {
 		u["displayName"] = plan.DisplayName.ValueString()
@@ -399,4 +495,57 @@ func managedGroupsList(ctx context.Context, managed types.List, actual []string,
 		}
 	}
 	return toStringList(ctx, kept, diags)
+}
+
+// checkProfileIsLicensed refuses a user profile the instance does not define.
+//
+// Sending one is not a recoverable mistake. DSS accepts the write, and every
+// later project create, user edit and user delete fails with a null
+// dereference inside its licence enforcement, through the public API and
+// through dsscli alike. The instance has to be rebuilt.
+//
+// Confirmed on a fresh DSS 15.0.0 whose licence defines only NONE: a user
+// created with NONE left the instance working, and the next user created with
+// DESIGNER broke it.
+//
+// ValidateConfig cannot do this: the set of profiles is a property of the
+// instance rather than of the configuration, and validation runs before the
+// provider is configured, so there is no client to ask. ModifyPlan runs after
+// Configure and can, which is why this is reached from there as well as from
+// Create and Update. Failing in ModifyPlan means terraform plan says no,
+// rather than an apply stopping half way through a run.
+func (r *userResource) checkProfileIsLicensed(ctx context.Context, profile types.String, diags *diag.Diagnostics) {
+	wanted := profile.ValueString()
+	if wanted == "" {
+		return
+	}
+
+	licensed, err := r.client.LicensedUserProfiles(ctx)
+	if err != nil {
+		// Not fatal. An instance that will not report its licence is not a
+		// reason to refuse to work, and the write may well be fine.
+		diags.AddWarning(
+			"Could not check which user profiles this instance licences",
+			fmt.Sprintf("Reading the licensing status failed: %s\n\n"+
+				"Proceeding anyway. If %q is not a profile this instance defines, DSS will "+
+				"store it and then fail every later project create, user edit and user "+
+				"delete, with no way back through the API.", err, wanted),
+		)
+		return
+	}
+
+	if len(licensed) == 0 || slices.Contains(licensed, wanted) {
+		return
+	}
+
+	diags.AddAttributeError(
+		path.Root("user_profile"),
+		"user_profile is not licensed on this instance",
+		fmt.Sprintf("This instance's licence defines %s, and not %q.\n\n"+
+			"Sending an undefined profile is not recoverable: DSS stores it, and every "+
+			"later project create, user edit and user delete then fails inside its "+
+			"licence enforcement, through the API and through dsscli alike. The "+
+			"instance has to be rebuilt, so nothing is written.",
+			strings.Join(licensed, ", "), wanted),
+	)
 }

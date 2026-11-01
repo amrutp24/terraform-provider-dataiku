@@ -298,6 +298,19 @@ func (r *projectResource) Delete(ctx context.Context, req resource.DeleteRequest
 func (r *projectResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("project_key"), req, resp)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+
+	// The clear_*_on_delete flags say what to do when the project is deleted.
+	// DSS does not store them, so a read cannot recover them and import would
+	// otherwise leave them null, which the schema defaults then show as a
+	// change on the first plan. Seeding them with those same defaults makes an
+	// untouched import plan clean.
+	for attr, value := range map[string]bool{
+		"clear_job_and_scenario_logs_on_delete":  true,
+		"clear_managed_datasets_on_delete":       false,
+		"clear_output_managed_folders_on_delete": false,
+	} {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root(attr), value)...)
+	}
 }
 
 // readInto refreshes model from the instance. It reports false when the

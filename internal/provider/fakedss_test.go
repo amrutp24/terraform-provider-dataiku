@@ -40,6 +40,11 @@ type fakeDSS struct {
 	// its build log.
 	failedCodeEnvs map[string]string
 
+	// licensedProfiles is what /admin/licensing/status reports. A real
+	// instance accepts only these as a user's profile, and corrupts itself
+	// permanently if given anything else.
+	licensedProfiles []string
+
 	// generalSettings is the instance-wide document containerized execution
 	// lives inside.
 	generalSettings map[string]any
@@ -89,6 +94,9 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 			"PYTHON39": true, "PYTHON311": true, "PYTHON312": true,
 		},
 		failedCodeEnvs: map[string]string{},
+		// A licensed instance defines several. The tests take the first of
+		// these as their profile, so the fake offers more than one.
+		licensedProfiles: []string{"DESIGNER", "READER", "NONE"},
 
 		generalSettings: map[string]any{
 			// A field the provider does not model, to prove a read-modify-write
@@ -119,10 +127,30 @@ func (f *fakeDSS) handler() http.Handler {
 	mux.HandleFunc("/public/api/admin/connections/", f.handleConnections)
 	mux.HandleFunc("/public/api/admin/code-envs/", f.handleCodeEnvs)
 	mux.HandleFunc("/public/api/admin/general-settings/", f.handleGeneralSettings)
+	mux.HandleFunc("/public/api/admin/licensing/status", f.handleLicensingStatus)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "unhandled "+r.Method+" "+r.URL.Path)
 	})
 	return mux
+}
+
+// handleLicensingStatus reports which user profiles the licence defines.
+//
+// The provider reads this before writing a user, because a profile the
+// instance does not define is stored and then breaks every later project
+// create, user edit and user delete, with no way back. The shape here matches
+// an unlicensed DSS 15.0.0, which defines exactly one profile.
+func (f *fakeDSS) handleLicensingStatus(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	profiles := map[string]any{}
+	for _, name := range f.licensedProfiles {
+		profiles[name] = map[string]any{"profile": name}
+	}
+	writeJSON(w, map[string]any{
+		"limits": map[string]any{"licensedProfiles": profiles},
+	})
 }
 
 func (f *fakeDSS) handleAuthInfo(w http.ResponseWriter, r *http.Request) {

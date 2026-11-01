@@ -79,7 +79,11 @@ func (r *scenarioResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Computed: true,
 				MarkdownDescription: "Identifier DSS gave the scenario. It is derived from the name rather " +
 					"than random: `Nightly build` becomes `Nightly_build`, so two scenarios with the same " +
-					"name in one project collide. It does not change when the scenario is renamed.",
+					"name in one project collide. It does not change when the scenario is renamed.\n\n" +
+					"The DSS UI derives it differently: it uppercases as well, so a scenario named `test1` " +
+					"in the browser gets the id `TEST1`, while the same name through the API keeps its case. " +
+					"When importing a scenario somebody created in the UI, read the id from the instance " +
+					"rather than deriving it from the name.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},

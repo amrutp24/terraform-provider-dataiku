@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"sort"
@@ -85,15 +87,70 @@ func testAccPythonInterpreter(t *testing.T) string {
 // what yours does.
 func testAccUserProfiles(t *testing.T) (string, string) {
 	t.Helper()
+
 	first := os.Getenv("DATAIKU_TEST_USER_PROFILE")
-	if first == "" {
-		first = "DESIGNER"
-	}
 	second := os.Getenv("DATAIKU_TEST_USER_PROFILE_ALT")
+	if first != "" && second != "" {
+		return first, second
+	}
+
+	// Ask the instance rather than guessing. A profile its licence does not
+	// define is stored and then breaks every later project create, user edit
+	// and user delete, with no way back through the API or dsscli, so a
+	// hardcoded default is a way to destroy the instance under test. This
+	// suite did exactly that: it defaulted to DESIGNER, which an unlicensed
+	// DSS 15 does not define.
+	licensed := testAccLicensedProfiles(t)
+	if len(licensed) == 0 {
+		t.Skip("the instance reports no licensed user profiles, so there is none safe to use")
+	}
+	if first == "" {
+		first = licensed[0]
+	}
 	if second == "" {
-		second = "NONE"
+		second = licensed[len(licensed)-1]
 	}
 	return first, second
+}
+
+// testAccLicensedProfiles reads the profiles the target instance licences,
+// sorted, from the same endpoint the provider checks before writing a user.
+func testAccLicensedProfiles(t *testing.T) []string {
+	t.Helper()
+
+	host := os.Getenv("DATAIKU_HOST")
+	key := os.Getenv("DATAIKU_API_KEY")
+	if host == "" {
+		t.Fatal("DATAIKU_HOST is unset; testAccSetup should have pointed this at the fake")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(host, "/")+"/public/api/admin/licensing/status", nil)
+	if err != nil {
+		t.Fatalf("building the licensing request failed: %s", err)
+	}
+	req.SetBasicAuth(key, "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("reading the licensing status failed: %s", err)
+	}
+	defer resp.Body.Close()
+
+	var status struct {
+		Limits struct {
+			LicensedProfiles map[string]any `json:"licensedProfiles"`
+		} `json:"limits"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatalf("decoding the licensing status failed: %s", err)
+	}
+
+	out := make([]string, 0, len(status.Limits.LicensedProfiles))
+	for name := range status.Limits.LicensedProfiles {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func TestAccProject(t *testing.T) {
@@ -155,12 +212,14 @@ resource "dataiku_project" "test" {
 				ImportStateId:     key,
 				ImportStateVerify: true,
 				// project_folder_id is create-only and never reported by DSS.
-				ImportStateVerifyIgnore: []string{
-					"project_folder_id",
-					"clear_managed_datasets_on_delete",
-					"clear_output_managed_folders_on_delete",
-					"clear_job_and_scenario_logs_on_delete",
-				},
+				//
+				// The clear_*_on_delete flags are deliberately not ignored.
+				// They were, and that hid a real wart: DSS does not store
+				// them, so import left them null and the first plan on an
+				// untouched import showed three changes. ImportState seeds
+				// them with their defaults now, and leaving them verified
+				// here is what keeps that true.
+				ImportStateVerifyIgnore: []string{"project_folder_id"},
 			},
 		},
 	})
@@ -273,6 +332,19 @@ resource "dataiku_group" "test" {
 					resource.TestCheckResourceAttr("dataiku_group.test", "admin", "true"),
 					resource.TestCheckResourceAttr("dataiku_group.test", "permissions.mayCreateProjects", "false"),
 				),
+			},
+			{
+				ResourceName:      "dataiku_group.test",
+				ImportState:       true,
+				ImportStateId:     name,
+				ImportStateVerify: true,
+				// An imported group carries no abilities. The permissions map
+				// tracks only the keys configuration names, because the set of
+				// may* flags differs between DSS versions and editions, and an
+				// import has no configuration to read. Write them yourself after
+				// importing, using the data source to discover the names this
+				// instance supports.
+				ImportStateVerifyIgnore: []string{"permissions.%", "permissions.mayCreateProjects"},
 			},
 		},
 	})
@@ -432,6 +504,17 @@ resource "dataiku_connection" "test" {
 					},
 				),
 			},
+			{
+				ResourceName:      "dataiku_connection.test",
+				ImportState:       true,
+				ImportStateId:     name,
+				ImportStateVerify: true,
+				// DSS redacts secrets when reading a connection back, so the
+				// imported params cannot match what was written. Import reads the
+				// redacted form in once as a starting point, which is the
+				// documented behaviour rather than a gap in the test.
+				ImportStateVerifyIgnore: []string{"params_json"},
+			},
 		},
 	})
 }
@@ -515,6 +598,12 @@ resource "dataiku_project_permissions" "test" {
 					resource.TestCheckResourceAttr("dataiku_project_permissions.test", "permission.1.read_dashboards", "true"),
 				),
 			},
+			{
+				ResourceName:      "dataiku_project_permissions.test",
+				ImportState:       true,
+				ImportStateId:     key,
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -571,6 +660,12 @@ resource "dataiku_project_variables" "test" {
 `,
 				PlanOnly: true,
 			},
+			{
+				ResourceName:      "dataiku_project_variables.test",
+				ImportState:       true,
+				ImportStateId:     key,
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -580,6 +675,7 @@ func TestAccDataSources(t *testing.T) {
 	key := randProjectKey(t)
 	group := randName(t, "grp")
 	login := randName(t, "usr")
+	profile, _ := testAccUserProfiles(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -602,6 +698,7 @@ resource "dataiku_user" "test" {
   login        = %[3]q
   display_name = "DS User"
   password     = "secret"
+  user_profile = %[4]q
 }
 
 data "dataiku_project" "test" {
@@ -619,7 +716,7 @@ data "dataiku_group" "test" {
 data "dataiku_user" "test" {
   login = dataiku_user.test.login
 }
-`, key, group, login),
+`, key, group, login, profile),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "name", "Data source test"),
 					resource.TestCheckResourceAttr("data.dataiku_project.test", "owner", "admin"),
@@ -946,7 +1043,11 @@ data "dataiku_project_folder" "test" {
 }
 
 func TestAccScenario(t *testing.T) {
-	testAccSetup(t)
+	// The fake accepts any trigger, so this only needs guarding when it is
+	// pointed at a real instance, where the licence decides.
+	if testAccSetup(t) == nil && !testAccLicenseFeature(t, "temporalTriggerAllowed") {
+		t.Skip("this instance does not licence temporal triggers")
+	}
 	key := randProjectKey(t)
 
 	project := fmt.Sprintf(`
@@ -1045,6 +1146,17 @@ resource "dataiku_scenario" "test" {
 				Config:   project + testAccScenarioRenamedConfig,
 				PlanOnly: true,
 			},
+			{
+				ResourceName:      "dataiku_scenario.test",
+				ImportState:       true,
+				ImportStateId:     key + "/Nightly_build",
+				ImportStateVerify: true,
+				// DSS returns the whole scenario document merged with its own
+				// defaults, so the triggers it reports are not byte-for-byte what
+				// was sent. The id, name and project are what import has to get
+				// right.
+				ImportStateVerifyIgnore: []string{"triggers_json", "steps_json", "params_json", "reporters_json"},
+			},
 		},
 	})
 }
@@ -1085,6 +1197,9 @@ resource "dataiku_scenario" "test" {
 func TestAccScenarioCustomPython(t *testing.T) {
 	if testAccSetup(t) != nil {
 		t.Skip("custom_python scenarios are only exercised against a real instance")
+	}
+	if !testAccLicenseFeature(t, "advancedScenarioStepsAllowed") {
+		t.Skip("this instance does not licence advanced scenario steps, so a Python scenario cannot be created")
 	}
 	key := randProjectKey(t)
 
@@ -1378,4 +1493,143 @@ func checkStateHasNoSecret(resourceName, secret string) resource.TestCheckFunc {
 		}
 		return nil
 	}
+}
+
+// A user with no licence profile is not a configuration mistake you find out
+// about later: DSS accepts it, stores userProfile as null, and the instance
+// then fails every project create, user edit and user delete, through the API
+// and through dsscli alike. Reproduced on a fresh DSS 15.0.0 with no licence.
+// The provider refuses at plan time instead.
+func TestAccUserRequiresAProfile(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "No profile"
+  password     = "An0ther-passw0rd!"
+}
+`, login),
+				ExpectError: regexp.MustCompile(`user_profile is required`),
+			},
+		},
+	})
+}
+
+// Sending a profile the instance does not licence is unrecoverable: DSS
+// stores it, and every later project create, user edit and user delete fails
+// inside its licence enforcement, through the API and through dsscli alike.
+// Confirmed against a fresh DSS 15.0.0 that licences only NONE, where a user
+// created with DESIGNER broke the instance. The provider checks before
+// writing rather than finding out afterwards.
+func TestAccUserRejectsAnUnlicensedProfile(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+
+	// PlanOnly, so this runs against a real instance too. It used to skip
+	// there, because the check lived in Create and a regression would have
+	// written the profile and taken the instance with it. The check runs in
+	// ModifyPlan now, so a plan is enough to exercise it and a plan writes
+	// nothing even if it regresses.
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Unlicensed"
+  password     = "An0ther-passw0rd!"
+  user_profile = "NOT_A_LICENSED_PROFILE"
+}
+`, login),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`not licensed on this instance`),
+			},
+		},
+	})
+}
+
+// Moving an existing user onto an unlicensed profile breaks the instance the
+// same way creating one does, and that path had no check at all: Update wrote
+// userProfile straight through. Found by planning a DESIGNER user against an
+// instance that licenses only NONE and watching Terraform plan it happily.
+func TestAccUserRejectsMovingToAnUnlicensedProfile(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+	profile, _ := testAccUserProfiles(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Licensed to start with"
+  password     = "An0ther-passw0rd!"
+  user_profile = %[2]q
+}
+`, login, profile),
+			},
+			{
+				// PlanOnly for the same reason as above: the refusal happens
+				// while planning, so nothing reaches the instance.
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Licensed to start with"
+  password     = "An0ther-passw0rd!"
+  user_profile = "NOT_A_LICENSED_PROFILE"
+}
+`, login),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`not licensed on this instance`),
+			},
+		},
+	})
+}
+
+// testAccLicenseFeature reports whether the target instance licences a named
+// feature, from the same endpoint the provider reads before writing a user.
+//
+// Which features are on differs between instances, and not in the direction
+// you would guess: one unlicensed DSS 15.0.0 allowed temporal triggers and
+// refused custom Python scenario steps, and another of the same image did the
+// opposite. Hardcoding either expectation makes the suite fail for a reason
+// that has nothing to do with the provider, so the tests ask instead.
+func testAccLicenseFeature(t *testing.T, name string) bool {
+	t.Helper()
+
+	host := os.Getenv("DATAIKU_HOST")
+	if host == "" {
+		t.Fatal("DATAIKU_HOST is unset; testAccSetup should have pointed this at the fake")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(host, "/")+"/public/api/admin/licensing/status", nil)
+	if err != nil {
+		t.Fatalf("building the licensing request failed: %s", err)
+	}
+	req.SetBasicAuth(os.Getenv("DATAIKU_API_KEY"), "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("reading the licensing status failed: %s", err)
+	}
+	defer resp.Body.Close()
+
+	var status struct {
+		Features map[string]any `json:"features"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatalf("decoding the licensing status failed: %s", err)
+	}
+
+	allowed, ok := status.Features[name].(bool)
+	return ok && allowed
 }

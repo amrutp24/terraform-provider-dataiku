@@ -90,6 +90,12 @@ resource "dataiku_container_execution_config" "test" {
 				ImportStateId:     exec,
 				ImportStateVerify: false,
 			},
+			{
+				ResourceName:      "dataiku_container_image_build_config.test",
+				ImportState:       true,
+				ImportStateId:     build,
+				ImportStateVerify: false,
+			},
 		},
 	})
 }
