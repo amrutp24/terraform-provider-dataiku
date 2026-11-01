@@ -1528,12 +1528,14 @@ resource "dataiku_user" "test" {
 // created with DESIGNER broke the instance. The provider checks before
 // writing rather than finding out afterwards.
 func TestAccUserRejectsAnUnlicensedProfile(t *testing.T) {
-	fake := testAccSetup(t)
-	if fake == nil {
-		t.Skip("runs against the fake only: it would corrupt a real instance if the check regressed")
-	}
+	testAccSetup(t)
 	login := randName(t, "usr")
 
+	// PlanOnly, so this runs against a real instance too. It used to skip
+	// there, because the check lived in Create and a regression would have
+	// written the profile and taken the instance with it. The check runs in
+	// ModifyPlan now, so a plan is enough to exercise it and a plan writes
+	// nothing even if it regresses.
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -1546,6 +1548,47 @@ resource "dataiku_user" "test" {
   user_profile = "NOT_A_LICENSED_PROFILE"
 }
 `, login),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`not licensed on this instance`),
+			},
+		},
+	})
+}
+
+// Moving an existing user onto an unlicensed profile breaks the instance the
+// same way creating one does, and that path had no check at all: Update wrote
+// userProfile straight through. Found by planning a DESIGNER user against an
+// instance that licenses only NONE and watching Terraform plan it happily.
+func TestAccUserRejectsMovingToAnUnlicensedProfile(t *testing.T) {
+	testAccSetup(t)
+	login := randName(t, "usr")
+	profile, _ := testAccUserProfiles(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Licensed to start with"
+  password     = "An0ther-passw0rd!"
+  user_profile = %[2]q
+}
+`, login, profile),
+			},
+			{
+				// PlanOnly for the same reason as above: the refusal happens
+				// while planning, so nothing reaches the instance.
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Licensed to start with"
+  password     = "An0ther-passw0rd!"
+  user_profile = "NOT_A_LICENSED_PROFILE"
+}
+`, login),
+				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`not licensed on this instance`),
 			},
 		},

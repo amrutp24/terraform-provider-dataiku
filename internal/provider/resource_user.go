@@ -28,6 +28,7 @@ var (
 	_ resource.ResourceWithImportState      = (*userResource)(nil)
 	_ resource.ResourceWithConfigValidators = (*userResource)(nil)
 	_ resource.ResourceWithValidateConfig   = (*userResource)(nil)
+	_ resource.ResourceWithModifyPlan       = (*userResource)(nil)
 )
 
 // NewUserResource returns the dataiku_user resource.
@@ -133,7 +134,7 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 					"entirely on your Dataiku licence. Read `/public/api/admin/licensing/status` to see what " +
 					"your instance licenses, or use the `dataiku_user` data source.\n\n" +
 					"Optional in the schema but required in practice: this provider refuses a user with no " +
-					"profile, and refuses a profile the instance does not licence, both at plan time. That is " +
+					"profile, and refuses a profile the instance does not licence, both while planning. That is " +
 					"not strictness for its own sake. DSS accepts either one, answers 200, stores it, and then " +
 					"fails every later project create, user edit and user delete inside its licence " +
 					"enforcement, through the API and through dsscli alike, with no way back. Checking first " +
@@ -227,6 +228,33 @@ func (r *userResource) ValidateConfig(ctx context.Context, req resource.Validate
 			"rather than guessing: an unlicensed DSS 15 defines only NONE, and sending "+
 			"DESIGNER to it causes exactly the failure above.",
 	)
+}
+
+// ModifyPlan refuses an unlicensed profile while planning.
+//
+// The check needs the instance, so it cannot live in ValidateConfig, which
+// runs before the provider is configured. ModifyPlan runs after Configure, so
+// terraform plan can say no here instead of an apply failing part way along.
+func (r *userResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// A destroy plan has no plan to read, and nothing to check.
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+	// Plans are also walked before Configure has run, during validation.
+	if r.client == nil {
+		return
+	}
+
+	var plan userResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// An unknown profile reads as empty here and is skipped, the same as a
+	// null one: it comes from somewhere Terraform has not resolved yet, and
+	// Create and Update check again before writing.
+	r.checkProfileIsLicensed(ctx, plan.UserProfile, &resp.Diagnostics)
 }
 
 func (r *userResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -342,6 +370,13 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 	rotateWriteOnly := passwordWO != "" && !plan.PasswordWOVersion.Equal(state.PasswordWOVersion)
 	passwordChanged := !plan.Password.Equal(state.Password) && !plan.Password.IsNull()
+
+	// Moving an existing user onto an unlicensed profile breaks the instance
+	// exactly as creating one does, and this path had no check at all.
+	r.checkProfileIsLicensed(ctx, plan.UserProfile, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	err := r.client.UpdateUser(ctx, login, func(u map[string]any) {
 		u["displayName"] = plan.DisplayName.ValueString()
@@ -473,9 +508,12 @@ func managedGroupsList(ctx context.Context, managed types.List, actual []string,
 // created with NONE left the instance working, and the next user created with
 // DESIGNER broke it.
 //
-// A plan-time validator cannot do this, because the set of profiles is a
-// property of the instance rather than of the configuration, so the check
-// belongs here, immediately before the write.
+// ValidateConfig cannot do this: the set of profiles is a property of the
+// instance rather than of the configuration, and validation runs before the
+// provider is configured, so there is no client to ask. ModifyPlan runs after
+// Configure and can, which is why this is reached from there as well as from
+// Create and Update. Failing in ModifyPlan means terraform plan says no,
+// rather than an apply stopping half way through a run.
 func (r *userResource) checkProfileIsLicensed(ctx context.Context, profile types.String, diags *diag.Diagnostics) {
 	wanted := profile.ValueString()
 	if wanted == "" {
@@ -507,7 +545,7 @@ func (r *userResource) checkProfileIsLicensed(ctx context.Context, profile types
 			"Sending an undefined profile is not recoverable: DSS stores it, and every "+
 			"later project create, user edit and user delete then fails inside its "+
 			"licence enforcement, through the API and through dsscli alike. The "+
-			"instance has to be rebuilt, so this apply stops here instead.",
+			"instance has to be rebuilt, so nothing is written.",
 			strings.Join(licensed, ", "), wanted),
 	)
 }

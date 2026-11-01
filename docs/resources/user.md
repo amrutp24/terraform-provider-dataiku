@@ -78,7 +78,7 @@ Requires Terraform 1.11 or later. Conflicts with `password`.
 - `source_type` (String) Where the user is defined. One of `LOCAL` or `LDAP`. Defaults to `LOCAL`. Changing this forces a new user.
 - `user_profile` (String) Licence profile assigned to the user, for example `DESIGNER`, `FULL_DESIGNER`, `DATA_DESIGNER`, `AI_CONSUMER` or `READER`. Which profiles exist depends entirely on your Dataiku licence. Read `/public/api/admin/licensing/status` to see what your instance licenses, or use the `dataiku_user` data source.
 
-Optional in the schema but required in practice: this provider refuses a user with no profile, and refuses a profile the instance does not licence, both at plan time. That is not strictness for its own sake. DSS accepts either one, answers 200, stores it, and then fails every later project create, user edit and user delete inside its licence enforcement, through the API and through dsscli alike, with no way back. Checking first is the only way to avoid losing the instance.
+Optional in the schema but required in practice: this provider refuses a user with no profile, and refuses a profile the instance does not licence, both while planning. That is not strictness for its own sake. DSS accepts either one, answers 200, stores it, and then fails every later project create, user edit and user delete inside its licence enforcement, through the API and through dsscli alike, with no way back. Checking first is the only way to avoid losing the instance.
 
 ### Read-Only
 
