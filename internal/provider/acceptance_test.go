@@ -212,12 +212,14 @@ resource "dataiku_project" "test" {
 				ImportStateId:     key,
 				ImportStateVerify: true,
 				// project_folder_id is create-only and never reported by DSS.
-				ImportStateVerifyIgnore: []string{
-					"project_folder_id",
-					"clear_managed_datasets_on_delete",
-					"clear_output_managed_folders_on_delete",
-					"clear_job_and_scenario_logs_on_delete",
-				},
+				//
+				// The clear_*_on_delete flags are deliberately not ignored.
+				// They were, and that hid a real wart: DSS does not store
+				// them, so import left them null and the first plan on an
+				// untouched import showed three changes. ImportState seeds
+				// them with their defaults now, and leaving them verified
+				// here is what keeps that true.
+				ImportStateVerifyIgnore: []string{"project_folder_id"},
 			},
 		},
 	})
