@@ -4,6 +4,77 @@ All notable changes to this provider are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-11-06
+
+### Fixed
+
+- A `dataiku_user` whose `user_profile` the instance does not licence is
+  refused while planning, and on update. The check ran from `Create` only, so
+  it refused part way through an apply rather than at plan time, and `Update`
+  did not call it at all: it wrote `userProfile` straight through. Moving an
+  existing user onto an unlicensed profile breaks the instance exactly as
+  creating one does, so that path was unguarded.
+
+  This is worth taking seriously rather than treating as strictness. DSS
+  accepts the write, answers 200, stores it, and then fails every later
+  project create, user edit and user delete inside its licence enforcement,
+  through the public API and through dsscli alike. The instance has to be
+  rebuilt.
+
+  Found by planning a `DESIGNER` user against a newly built instance whose
+  licensing endpoint reported `NONE` as its only profile, where Terraform
+  said "Plan: 1 to add" and raised nothing. `ValidateConfig` cannot do this,
+  because the set of licensed profiles belongs to the instance rather than to
+  the configuration and validation runs before the provider is configured.
+  `ModifyPlan` runs after `Configure` and can.
+
+- `terraform import` of a `dataiku_project` left
+  `clear_job_and_scenario_logs_on_delete`,
+  `clear_managed_datasets_on_delete` and
+  `clear_output_managed_folders_on_delete` out of state. DSS does not store
+  them, so a read cannot recover them, and the schema defaults then showed as
+  three pending changes on the first plan after an untouched import, even
+  with a configuration matching the instance exactly. Writing them explicitly
+  did not help, because the difference was against null in state.
+
+  The acceptance test had all three in `ImportStateVerifyIgnore`, which is why
+  it stayed green while a hand-run `terraform import` was dirty. Those ignores
+  are gone, so the test holds the behaviour it claims to.
+
+- The `user_profile` description said this provider neither restricts the
+  value nor defaults it, and told you to leave it unset so DSS would assign a
+  fallback. The licence guard made both untrue.
+
+- The documented rule for deriving a `scenario_id` from a name holds for the
+  API, and so for this provider, but not for the DSS UI, which uppercases as
+  well: a scenario named `test1` in the browser has the id `TEST1`. Anyone
+  importing a scenario somebody made in the UI and deriving its id from the
+  name was given a name that does not exist. The pages now say to read the id
+  from the instance in that case.
+
+### Added
+
+- Import sections on the doc pages for `dataiku_container_settings`,
+  `dataiku_container_execution_config` and
+  `dataiku_container_image_build_config`. All three supported import already,
+  but with nothing on their pages there was no way to learn the id format
+  short of reading the source.
+
+  Two of them carry a warning those pages needed: `settings_json` is seeded
+  empty on import, because the instance holds your settings merged with every
+  default DSS added and cannot say which were yours. Read `effective_json`
+  and write `settings_json` from the parts you mean to manage.
+
+### Notes
+
+- The suite was run against a DSS instance on AWS rather than only against
+  the in-process fake: 29 passed, 7 skipped. The skips are the fake-only
+  cases, one licence-gated feature, and the connection test that wants a real
+  database.
+- Every resource above was also imported with the `terraform import` command
+  against that instance, including objects created through the DSS UI rather
+  than through the API, and the plan afterwards was empty.
+
 ## [0.7.0] - 2026-10-27
 
 ### Added
