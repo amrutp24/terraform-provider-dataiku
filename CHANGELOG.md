@@ -4,6 +4,68 @@ All notable changes to this provider are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-11-06
+
+### Changed
+
+- `user_profile` on `dataiku_user` is now required in practice. It is still
+  optional in the schema, but a user without one is refused while planning.
+  If you have left it unset, set it before upgrading: DSS stores a missing
+  profile as null and then cannot read the user back, which breaks the
+  instance the same way an unlicensed profile does.
+
+### Fixed
+
+- A `user_profile` the instance does not licence is refused while planning,
+  and when changing an existing user. Sending one is not recoverable: DSS
+  accepts the write, answers 200, stores it, and from then on every project
+  create, user edit and user delete fails, through the public API and through
+  dsscli alike. The instance has to be rebuilt.
+
+  The check used to run only when creating a user, so it stopped an apply
+  part way through instead of at plan time, and changing a user's profile was
+  not checked at all.
+
+- `terraform import` of a `dataiku_project` left
+  `clear_job_and_scenario_logs_on_delete`,
+  `clear_managed_datasets_on_delete` and
+  `clear_output_managed_folders_on_delete` out of state, so the first plan
+  after importing showed three changes even against a configuration that
+  matched the instance. Import seeds them now.
+
+- The `user_profile` documentation said this provider neither restricts the
+  value nor defaults it, and told you to leave it unset. Both stopped being
+  true with the check above.
+
+- The rule for turning a scenario name into its id holds for the API, and so
+  for this provider, but not for the DSS UI, which also uppercases: a
+  scenario named `test1` in the browser has the id `TEST1`. Importing one
+  made in the UI and deriving its id from the name gave a name that does not
+  exist. The pages now say to read the id from the instance instead.
+
+### Added
+
+- Import sections on the pages for `dataiku_container_settings`,
+  `dataiku_container_execution_config` and
+  `dataiku_container_image_build_config`. All three already supported import,
+  but with nothing on their pages the id format could only be found by
+  reading the source.
+
+  Two of them now also warn that `settings_json` is seeded empty on import,
+  because the instance holds your settings merged with every default DSS
+  added and cannot say which were yours. Read `effective_json` and write
+  `settings_json` from the parts you mean to manage.
+
+### Notes
+
+- The suite was run against a DSS instance on AWS, not only against the
+  in-process fake: 29 passed, 7 skipped. The skips are the fake-only cases,
+  one licence-gated feature, and the connection test that wants a real
+  database.
+- Every resource above was imported with the `terraform import` command
+  against that instance, including objects created through the DSS UI rather
+  than the API, and the plan afterwards was empty.
+
 ## [0.7.0] - 2026-10-27
 
 ### Added
