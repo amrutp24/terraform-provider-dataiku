@@ -356,13 +356,36 @@ func (c *Client) TestConnection(ctx context.Context, name string) (bool, error) 
 // Which profiles exist depends entirely on the licence, so the only way to
 // check a value before sending it is to ask the instance.
 func (c *Client) LicensedUserProfiles(ctx context.Context) ([]string, error) {
+	profiles, _, err := c.LicensingProfiles(ctx)
+	return profiles, err
+}
+
+// LicensingProfiles returns the profiles the instance licences and the
+// profile it falls back to, which is the field that decides whether sending
+// an unlicensed profile is dangerous.
+//
+// On an instance with a licence, fallbackProfile is set and DSS protects
+// itself: a profile it does not licence is accepted and mapped onto the
+// fallback, and a profile that does not exist at all is refused with a 500
+// and nothing is stored. Measured against DSS 15 licensed as Free Edition,
+// where licensedProfiles was DESIGNER and NONE, fallbackProfile was DESIGNER,
+// and a user created with DATA_SCIENTIST worked.
+//
+// On an instance with no licence there is no fallback, and the same writes
+// are accepted and stored with a null profile, after which every project
+// create, user edit and user delete fails for good.
+//
+// So the fallback is what separates the two, and an empty one is the signal
+// that a profile has to be checked before it is written.
+func (c *Client) LicensingProfiles(ctx context.Context) ([]string, string, error) {
 	var status struct {
 		Limits struct {
 			LicensedProfiles map[string]any `json:"licensedProfiles"`
+			FallbackProfile  string         `json:"fallbackProfile"`
 		} `json:"limits"`
 	}
 	if err := c.get(ctx, "/admin/licensing/status", nil, &status); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	profiles := make([]string, 0, len(status.Limits.LicensedProfiles))
@@ -370,5 +393,5 @@ func (c *Client) LicensedUserProfiles(ctx context.Context) ([]string, error) {
 		profiles = append(profiles, name)
 	}
 	sort.Strings(profiles)
-	return profiles, nil
+	return profiles, status.Limits.FallbackProfile, nil
 }

@@ -1873,7 +1873,20 @@ resource "dataiku_user" "test" {
 // created with DESIGNER broke the instance. The provider checks before
 // writing rather than finding out afterwards.
 func TestAccUserRejectsAnUnlicensedProfile(t *testing.T) {
-	testAccSetup(t)
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it needs an instance with no licence, and a real one has one")
+	}
+
+	// An instance with a licence reports a fallbackProfile and maps an
+	// unlicensed profile onto it, so refusing there would only block
+	// configurations that work. Clearing it is what makes this the
+	// unlicensed instance the refusal is for. Measured on DSS 15: with a
+	// Free Edition licence, DATA_SCIENTIST is accepted and resolves to the
+	// fallback; with no licence, the profile is stored unresolved and the
+	// instance is finished.
+	fake.fallbackProfile = ""
+
 	login := randName(t, "usr")
 
 	// PlanOnly, so this runs against a real instance too. It used to skip
@@ -1905,7 +1918,20 @@ resource "dataiku_user" "test" {
 // userProfile straight through. Found by planning a DESIGNER user against an
 // instance that licenses only NONE and watching Terraform plan it happily.
 func TestAccUserRejectsMovingToAnUnlicensedProfile(t *testing.T) {
-	testAccSetup(t)
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it needs an instance with no licence, and a real one has one")
+	}
+
+	// An instance with a licence reports a fallbackProfile and maps an
+	// unlicensed profile onto it, so refusing there would only block
+	// configurations that work. Clearing it is what makes this the
+	// unlicensed instance the refusal is for. Measured on DSS 15: with a
+	// Free Edition licence, DATA_SCIENTIST is accepted and resolves to the
+	// fallback; with no licence, the profile is stored unresolved and the
+	// instance is finished.
+	fake.fallbackProfile = ""
+
 	login := randName(t, "usr")
 	profile, _ := testAccUserProfiles(t)
 
@@ -1935,6 +1961,42 @@ resource "dataiku_user" "test" {
 `, login),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`not licensed on this instance`),
+			},
+		},
+	})
+}
+
+// The first version of this guard refused any profile not in
+// licensedProfiles, which blocked configurations that work. On DSS 15
+// licensed as Free Edition, licensedProfiles is DESIGNER and NONE,
+// fallbackProfile is DESIGNER, and a user created with DATA_SCIENTIST
+// through the console is accepted and resolves to DESIGNER. The provider
+// refused it. This is the test that would have caught that.
+func TestAccUserAcceptsAnUnlicensedProfileWhenThereIsAFallback(t *testing.T) {
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it pins the licensed set to prove the point")
+	}
+
+	// A profile the instance does not licence, on an instance that does have
+	// a licence. The fake's default fallback stands.
+	fake.licensedProfiles = []string{"DESIGNER", "NONE"}
+	login := randName(t, "usr")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Unlicensed but fine"
+  password     = "An0ther-passw0rd!"
+  user_profile = "DATA_SCIENTIST"
+}
+`, login),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
 			},
 		},
 	})
