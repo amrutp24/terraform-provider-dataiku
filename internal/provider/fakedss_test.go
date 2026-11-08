@@ -45,6 +45,14 @@ type fakeDSS struct {
 	// permanently if given anything else.
 	licensedProfiles []string
 
+	// fallbackProfile is what /admin/licensing/status reports under the same
+	// limits object, and it is the field that decides whether an unlicensed
+	// profile is dangerous. A licensed instance sets it and maps unknown
+	// profiles onto it; an unlicensed one leaves it empty and stores a profile
+	// it cannot resolve, which is the state that breaks the instance for good.
+	// Empty here means "no licence".
+	fallbackProfile string
+
 	// generalSettings is the instance-wide document containerized execution
 	// lives inside.
 	generalSettings map[string]any
@@ -97,6 +105,7 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 		// A licensed instance defines several. The tests take the first of
 		// these as their profile, so the fake offers more than one.
 		licensedProfiles: []string{"DESIGNER", "READER", "NONE"},
+		fallbackProfile:  "DESIGNER",
 
 		generalSettings: map[string]any{
 			// A field the provider does not model, to prove a read-modify-write
@@ -149,7 +158,10 @@ func (f *fakeDSS) handleLicensingStatus(w http.ResponseWriter, r *http.Request) 
 		profiles[name] = map[string]any{"profile": name}
 	}
 	writeJSON(w, map[string]any{
-		"limits": map[string]any{"licensedProfiles": profiles},
+		"limits": map[string]any{
+			"licensedProfiles": profiles,
+			"fallbackProfile":  f.fallbackProfile,
+		},
 	})
 }
 

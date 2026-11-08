@@ -516,11 +516,8 @@ func managedGroupsList(ctx context.Context, managed types.List, actual []string,
 // rather than an apply stopping half way through a run.
 func (r *userResource) checkProfileIsLicensed(ctx context.Context, profile types.String, diags *diag.Diagnostics) {
 	wanted := profile.ValueString()
-	if wanted == "" {
-		return
-	}
 
-	licensed, err := r.client.LicensedUserProfiles(ctx)
+	licensed, fallback, err := r.client.LicensingProfiles(ctx)
 	if err != nil {
 		// Not fatal. An instance that will not report its licence is not a
 		// reason to refuse to work, and the write may well be fine.
@@ -530,6 +527,39 @@ func (r *userResource) checkProfileIsLicensed(ctx context.Context, profile types
 				"Proceeding anyway. If %q is not a profile this instance defines, DSS will "+
 				"store it and then fail every later project create, user edit and user "+
 				"delete, with no way back through the API.", err, wanted),
+		)
+		return
+	}
+
+	// A fallback means the instance has a licence, and a licensed instance
+	// defends itself. Measured on DSS 15 licensed as Free Edition: a profile
+	// it does not licence is accepted and mapped onto the fallback, and a
+	// profile that does not exist at all is refused with a 500 and nothing is
+	// stored, including a user sent with no profile. In both cases the
+	// instance stays healthy.
+	//
+	// Refusing here as well would only block configurations that work. The
+	// first version of this check did exactly that: it rejected
+	// DATA_SCIENTIST on an instance where the console creates such users
+	// happily.
+	if fallback != "" {
+		return
+	}
+
+	// No fallback means no licence, and that is the state where this is not
+	// recoverable. DSS accepts the write, stores a profile it cannot resolve,
+	// and every later project create, user edit and user delete fails inside
+	// its licence enforcement, through the API and through dsscli alike.
+	if wanted == "" {
+		diags.AddAttributeError(
+			path.Root("user_profile"),
+			"user_profile is required on an instance with no licence",
+			"This instance reports no fallback profile, which means it has no licence. "+
+				"DSS will accept a user with no profile, store it as null, and then fail "+
+				"every later project create, user edit and user delete, with no way back "+
+				"through the API or through dsscli.\n\n"+
+				"Either set user_profile to one this instance defines, or license the "+
+				"instance first.",
 		)
 		return
 	}
