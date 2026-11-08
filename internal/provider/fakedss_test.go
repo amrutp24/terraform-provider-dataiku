@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 )
 
 // fakeDSS is an in-memory stand-in for a DSS instance. It implements just
@@ -76,6 +78,21 @@ var containerConfigKnownFields = map[string]map[string]bool{
 	},
 }
 
+// stockGroup is one of the groups a fresh DSS instance ships with, as
+// GET /admin/groups/ reports it.
+func stockGroup(name string, admin bool) map[string]any {
+	return map[string]any{
+		"name":              name,
+		"sourceType":        "LOCAL",
+		"admin":             admin,
+		"mayCreateProjects": admin,
+		"ldapGroupNames":    []any{},
+		"azureADGroupNames": []any{},
+		// An ability this provider version does not model.
+		"mayUseSomeFutureFeature": true,
+	}
+}
+
 func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 	t.Helper()
 
@@ -83,7 +100,15 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 		projects:    map[string]map[string]any{},
 		permissions: map[string]map[string]any{},
 		variables:   map[string]map[string]any{},
-		groups:      map[string]map[string]any{},
+		// The groups a stock DSS instance ships with. They are here because
+		// the suite's orphan sweep selects groups by the shape of their name,
+		// and a fake with no instance groups of its own cannot show that the
+		// sweep leaves them alone.
+		groups: map[string]map[string]any{
+			"administrators": stockGroup("administrators", true),
+			"data_team":      stockGroup("data_team", false),
+			"readers":        stockGroup("readers", false),
+		},
 		users:       map[string]map[string]any{},
 		connections: map[string]map[string]any{},
 		codeEnvs:    map[string]map[string]any{},
@@ -339,6 +364,15 @@ func (f *fakeDSS) handleUsers(w http.ResponseWriter, r *http.Request) {
 			delete(body, "password")
 			body["enabled"] = true
 			body["userProperties"] = map[string]any{"team": "analytics"}
+			// Creating a user through the public API makes DSS create a second
+			// group nobody asked for, named <login>-<creator>-<random>, with
+			// its admin flag set, and put the user in it. Deleting the user
+			// does not delete the group, so every user the suite creates leaks
+			// one. The fake leaks them too: a sweep only ever exercised
+			// against a real instance is a sweep nobody runs.
+			attached := l + "-admin-" + strings.ToLower(acctest.RandStringFromCharSet(8, acctest.CharSetAlpha))
+			f.groups[attached] = stockGroup(attached, true)
+			body["groups"] = append(asList(body["groups"]), attached)
 			f.users[l] = body
 			w.WriteHeader(http.StatusOK)
 		case http.MethodGet:
@@ -466,6 +500,35 @@ func (f *fakeDSS) projectCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.projects)
+}
+
+// groupNames returns every group the instance holds, sorted.
+func (f *fakeDSS) groupNames() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]string, 0, len(f.groups))
+	for name := range f.groups {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// attachedGroups returns the groups the fake created for a login the way DSS
+// does, whether or not that login still exists.
+func (f *fakeDSS) attachedGroups(login string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := []string{}
+	for name := range f.groups {
+		if strings.HasPrefix(name, login+"-admin-") {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (f *fakeDSS) droppedUnmodelledField() bool {

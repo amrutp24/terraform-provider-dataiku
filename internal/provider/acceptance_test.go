@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -42,13 +44,129 @@ func testAccSetup(t *testing.T) *fakeDSS {
 			t.Fatal("DATAIKU_HOST is set but DATAIKU_API_KEY is not; both are needed to test against a real instance")
 		}
 		t.Logf("running against the DSS instance at %s", host)
+		t.Cleanup(func() { testAccSweepPerUserGroups(t) })
 		return nil
 	}
 
 	fake, host := newFakeDSS(t)
 	t.Setenv("DATAIKU_HOST", host)
 	t.Setenv("DATAIKU_API_KEY", "acceptance-test-key")
+	// Registered after the fake, so it runs before the server is closed:
+	// cleanups run in reverse order of registration.
+	t.Cleanup(func() { testAccSweepPerUserGroups(t) })
 	return fake
+}
+
+// testAccInstanceGroups are the groups a stock DSS instance ships with. The
+// sweep below picks its targets by the shape of a group's name, and this is
+// the hard stop that keeps it off the instance's own groups even if one of
+// them takes that shape: none of these three does, but a group named
+// something like "data-team-eu-west1" would. Add your instance's own groups
+// here before pointing the suite at an instance that has any.
+var testAccInstanceGroups = map[string]bool{
+	"administrators": true,
+	"data_team":      true,
+	"readers":        true,
+}
+
+// testAccPerUserGroupName matches the name DSS gives the group it creates for
+// a user without being asked: <login>-<creator>-<random>. The last two
+// segments are matched narrowly and the login greedily, so a login with a dash
+// in it still ends up whole in the first submatch.
+var testAccPerUserGroupName = regexp.MustCompile(`^(.+)-[^-]+-[A-Za-z0-9]{4,}$`)
+
+// testAccSweepPerUserGroups deletes the groups the suite caused DSS to create
+// but was never told about.
+//
+// Creating a user through the public API also creates a second group, named
+// <login>-<creator>-<random> and carrying "admin": true even for a user whose
+// profile is NONE and whose groups are empty. DSS does not delete it when the
+// user goes, and Terraform cannot delete it because it never appeared in any
+// configuration, so each run of this suite used to leave one behind for good.
+// One test instance had collected thirteen, eleven of them belonging to users
+// that no longer existed.
+//
+// The provider deliberately does not do this. A provider that deletes objects
+// the configuration never declared is a provider you cannot trust with a
+// shared instance, so the tidying belongs to whatever made the mess: this
+// suite.
+//
+// A failure here is logged and swallowed. A group left behind is untidy; a
+// test that fails because cleanup could not reach the instance is worse.
+func testAccSweepPerUserGroups(t *testing.T) {
+	t.Helper()
+
+	client, err := dataiku.NewClient(dataiku.Config{
+		Host:   os.Getenv("DATAIKU_HOST"),
+		APIKey: os.Getenv("DATAIKU_API_KEY"),
+	})
+	if err != nil {
+		t.Logf("not sweeping leftover per-user groups: building a client failed: %s", err)
+		return
+	}
+
+	ctx := context.Background()
+	users, err := client.ListUsers(ctx)
+	if err != nil {
+		t.Logf("not sweeping leftover per-user groups: listing users failed: %s", err)
+		return
+	}
+	groups, err := client.ListGroups(ctx)
+	if err != nil {
+		t.Logf("not sweeping leftover per-user groups: listing groups failed: %s", err)
+		return
+	}
+
+	for _, name := range testAccOrphanedPerUserGroups(groups, users) {
+		if err := client.DeleteGroup(ctx, name); err != nil {
+			t.Logf("deleting the leftover per-user group %q failed: %s", name, err)
+			continue
+		}
+		t.Logf("swept the leftover per-user group %q", name)
+	}
+}
+
+// testAccOrphanedPerUserGroups picks the groups that are safe to delete, which
+// is a much smaller set than the groups that look like leftovers. All three
+// conditions matter.
+//
+// The name has to have the shape DSS generates. Anything else is somebody's
+// own group.
+//
+// The login in it must no longer exist. A group whose user is still there is a
+// live membership, whatever the suite thinks of how it came about.
+//
+// Nobody may be in it. A hand-made group can happen to have three
+// dash-separated segments, and deleting one because its first segment is not a
+// login would be the worst thing this helper could do. Membership is the
+// evidence that a group is in use, and DSS reports it on the user rather than
+// on the group, which the single ListUsers call above already has.
+func testAccOrphanedPerUserGroups(groups []dataiku.GroupListItem, users []dataiku.UserListItem) []string {
+	logins := make(map[string]bool, len(users))
+	members := map[string]bool{}
+	for _, u := range users {
+		logins[u.Login] = true
+		for _, g := range u.Groups {
+			members[g] = true
+		}
+	}
+
+	orphans := []string{}
+	for _, g := range groups {
+		if testAccInstanceGroups[g.Name] {
+			continue
+		}
+		match := testAccPerUserGroupName.FindStringSubmatch(g.Name)
+		if match == nil {
+			continue
+		}
+		if logins[match[1]] || members[g.Name] {
+			continue
+		}
+		orphans = append(orphans, g.Name)
+	}
+	sort.Strings(orphans)
+	return orphans
 }
 
 // Names are randomised per run so the tests never collide with objects DSS
@@ -425,6 +543,233 @@ resource "dataiku_user" "test" {
 
 	if fake != nil && fake.droppedUnmodelledField() {
 		t.Error("a user update dropped a field the provider does not model")
+	}
+}
+
+// TestAccUserLeavesAGroupBehind is the regression test for the leak itself: a
+// user created and destroyed through Terraform, and the group DSS attached
+// still standing afterwards until the sweep takes it.
+func TestAccUserLeavesAGroupBehind(t *testing.T) {
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it asserts on what the instance holds after a destroy")
+	}
+	login := randName(t, "usr")
+	profile, _ := testAccUserProfiles(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "dataiku_user" "test" {
+  login        = %[1]q
+  display_name = "Leaves a group behind"
+  user_profile = %[2]q
+}
+`, login, profile),
+				Check: resource.TestCheckResourceAttr("dataiku_user.test", "id", login),
+			},
+		},
+	})
+
+	// resource.Test destroyed the user on its way out. The group it caused is
+	// still there, which is the whole defect.
+	attached := fake.attachedGroups(login)
+	if len(attached) != 1 {
+		t.Fatalf("expected one group attached to %q, got %v", login, attached)
+	}
+
+	testAccSweepPerUserGroups(t)
+
+	if got := fake.attachedGroups(login); len(got) != 0 {
+		t.Errorf("the sweep left %v behind", got)
+	}
+	if got := fake.groupNames(); !slices.Equal(got, []string{"administrators", "data_team", "readers"}) {
+		t.Errorf("after the sweep the instance holds %v, want only its own groups", got)
+	}
+}
+
+// TestAccSweepPerUserGroupsSparesEverythingElse is the other half, and the
+// more important half: five groups that look like leftovers to some degree,
+// one of which may be deleted.
+func TestAccSweepPerUserGroupsSparesEverythingElse(t *testing.T) {
+	fake := testAccSetup(t)
+	if fake == nil {
+		t.Skip("runs against the fake only: it creates users and groups directly, without Terraform")
+	}
+
+	client, err := dataiku.NewClient(dataiku.Config{
+		Host:   os.Getenv("DATAIKU_HOST"),
+		APIKey: os.Getenv("DATAIKU_API_KEY"),
+	})
+	if err != nil {
+		t.Fatalf("building a client failed: %s", err)
+	}
+	ctx := context.Background()
+	profile, _ := testAccUserProfiles(t)
+
+	// member:    still a user, still in the group DSS gave it.
+	// lingering: still a user, but the membership was taken away, which is
+	//            what happens as soon as a configuration names groups of its
+	//            own.
+	// adopted:   deleted user, but somebody else was put in its group.
+	// orphan:    deleted user, nobody in the group. The only one to go.
+	logins := map[string]string{}
+	for _, kind := range []string{"member", "lingering", "adopted", "orphan"} {
+		login := randName(t, "usr")
+		logins[kind] = login
+		req := dataiku.CreateUserRequest{
+			Login:       login,
+			DisplayName: kind,
+			SourceType:  "LOCAL",
+			UserProfile: profile,
+		}
+		if err := client.CreateUser(ctx, req); err != nil {
+			t.Fatalf("creating the %s user failed: %s", kind, err)
+		}
+	}
+
+	groupOf := map[string]string{}
+	for kind, login := range logins {
+		attached := fake.attachedGroups(login)
+		if len(attached) != 1 {
+			t.Fatalf("expected one group attached to the %s user, got %v", kind, attached)
+		}
+		groupOf[kind] = attached[0]
+	}
+
+	// A group of the suite's own making, with no members and no user behind
+	// its name, to prove the sweep goes by the shape of the name rather than
+	// by looking abandoned.
+	plain := randName(t, "grp")
+	if err := client.CreateGroup(ctx, dataiku.CreateGroupRequest{Name: plain, SourceType: "LOCAL"}); err != nil {
+		t.Fatalf("creating the plain group failed: %s", err)
+	}
+
+	err = client.UpdateUser(ctx, logins["lingering"], func(u map[string]any) {
+		u["groups"] = []any{}
+	})
+	if err != nil {
+		t.Fatalf("emptying the lingering user's groups failed: %s", err)
+	}
+	err = client.UpdateUser(ctx, logins["member"], func(u map[string]any) {
+		u["groups"] = []any{groupOf["member"], groupOf["adopted"]}
+	})
+	if err != nil {
+		t.Fatalf("adopting the other user's group failed: %s", err)
+	}
+	for _, kind := range []string{"adopted", "orphan"} {
+		if err := client.DeleteUser(ctx, logins[kind]); err != nil {
+			t.Fatalf("deleting the %s user failed: %s", kind, err)
+		}
+	}
+
+	testAccSweepPerUserGroups(t)
+
+	want := []string{
+		"administrators",
+		"data_team",
+		"readers",
+		plain,
+		groupOf["member"],
+		groupOf["lingering"],
+		groupOf["adopted"],
+	}
+	sort.Strings(want)
+	if got := fake.groupNames(); !slices.Equal(got, want) {
+		t.Errorf("after the sweep the instance holds %v, want %v", got, want)
+	}
+}
+
+// TestAccSetupRegistersTheSweep is what makes the fix a fix rather than a
+// helper nobody calls: every test that goes through testAccSetup sweeps when
+// it finishes, whether or not it remembered to.
+//
+// A test cannot watch its own cleanup run, so the work happens in a subtest
+// and the assertion in its parent, after the subtest and its cleanups are
+// done. The fake outlives its server, so it can still be read.
+func TestAccSetupRegistersTheSweep(t *testing.T) {
+	var fake *fakeDSS
+	var login string
+
+	t.Run("creates and deletes a user", func(t *testing.T) {
+		fake = testAccSetup(t)
+		if fake == nil {
+			t.Skip("runs against the fake only: it asserts on what the instance holds")
+		}
+
+		client, err := dataiku.NewClient(dataiku.Config{
+			Host:   os.Getenv("DATAIKU_HOST"),
+			APIKey: os.Getenv("DATAIKU_API_KEY"),
+		})
+		if err != nil {
+			t.Fatalf("building a client failed: %s", err)
+		}
+
+		ctx := context.Background()
+		profile, _ := testAccUserProfiles(t)
+		login = randName(t, "usr")
+		req := dataiku.CreateUserRequest{
+			Login:       login,
+			DisplayName: "Swept on cleanup",
+			SourceType:  "LOCAL",
+			UserProfile: profile,
+		}
+		if err := client.CreateUser(ctx, req); err != nil {
+			t.Fatalf("creating the user failed: %s", err)
+		}
+		if err := client.DeleteUser(ctx, login); err != nil {
+			t.Fatalf("deleting the user failed: %s", err)
+		}
+		if got := fake.attachedGroups(login); len(got) != 1 {
+			t.Fatalf("expected one group attached to %q, got %v", login, got)
+		}
+	})
+
+	if fake == nil {
+		t.Skip("the subtest did not run against the fake")
+	}
+	if got := fake.attachedGroups(login); len(got) != 0 {
+		t.Errorf("finishing a test left %v behind, so nothing is sweeping", got)
+	}
+}
+
+// TestAccSweepPerUserGroupsDoesNotFailTheSuite pins the other half of the
+// cleanup contract. The sweep runs after every test, so a sweep that reports
+// its own failures turns an unreachable instance into a suite full of red
+// tests that have nothing wrong with them.
+func TestAccSweepPerUserGroupsDoesNotFailTheSuite(t *testing.T) {
+	refuses := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	t.Cleanup(refuses.Close)
+
+	t.Setenv("DATAIKU_HOST", refuses.URL)
+	t.Setenv("DATAIKU_API_KEY", "a-key-that-may-not-list-groups")
+
+	// Anything the sweep reports rather than logs lands on this test.
+	testAccSweepPerUserGroups(t)
+}
+
+// TestAccOrphanSelectorSparesNamedInstanceGroups covers the one guard the
+// sweep's end to end tests cannot reach. On a stock instance no group of DSS's
+// own has three dash-separated segments, so the shape check alone keeps the
+// sweep away from them and the name list behind it never fires. It exists for
+// the instance that does have one, and the only way to stand that up is to say
+// so directly.
+func TestAccOrphanSelectorSparesNamedInstanceGroups(t *testing.T) {
+	saved := testAccInstanceGroups
+	t.Cleanup(func() { testAccInstanceGroups = saved })
+	testAccInstanceGroups = map[string]bool{"data-team-eu-west1": true}
+
+	groups := []dataiku.GroupListItem{
+		{Name: "data-team-eu-west1"},
+		{Name: "tfacc_usr_gone-admin-pzgpgtih"},
+	}
+	want := []string{"tfacc_usr_gone-admin-pzgpgtih"}
+	if got := testAccOrphanedPerUserGroups(groups, nil); !slices.Equal(got, want) {
+		t.Errorf("the selector chose %v, want %v", got, want)
 	}
 }
 
