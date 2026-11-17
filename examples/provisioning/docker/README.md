@@ -5,10 +5,10 @@ The platform is incidental: replace `docker_container.dss` with a GCE instance,
 an EC2 instance, or a host you already own, and everything under *layer 2* is
 unchanged.
 
-For a VM rather than a container, use one of the published cloud modules —
-[aws](https://github.com/amrutp24/terraform-aws-dss),
+For a VM rather than a container, use one of the published cloud modules
+([aws](https://github.com/amrutp24/terraform-aws-dss),
 [google](https://github.com/amrutp24/terraform-google-dss),
-[azurerm](https://github.com/amrutp24/terraform-azurerm-dss) — or
+[azurerm](https://github.com/amrutp24/terraform-azurerm-dss)), or
 [`amrutp24/dss-bootstrap/null`](https://github.com/amrutp24/terraform-null-dss-bootstrap)
 directly if your target is not among them.
 
@@ -43,7 +43,7 @@ configuration.
 
 DSS takes several minutes to initialise on first start. Watch it with
 `docker logs -f dataiku-dss`, and wait for the API to answer before minting the
-key — a `401` means the backend is up, while `502` means it is still starting.
+key. A `401` means the backend is up, while `502` means it is still starting.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:10000/public/api/auth/info
@@ -51,13 +51,19 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:10000/public/api/auth/
 
 ## Licence
 
-The provider talks to the DSS public REST API. Whether an instance serves it
-depends on version and licence, so check rather than assume: a stock DSS 15
-Community Edition answered it with no licence installed, while an older
-`dataiku/dss` container refused with `DSS API is not available with your Free
-Edition license`. Confirm with
-`curl -su "$DATAIKU_API_KEY:" "$DSS_URL/public/api/admin/general-settings/" -o /dev/null -w '%{http_code}'`,
-which should print `200`.
+You do not need one for this example. The `dataiku/dss` image serves the
+public REST API with no licence installed, so everything under layer 2 applies
+against a container you started a few minutes ago. A licence changes which
+features work once you are in: containerized execution and temporal scenario
+triggers both need one.
+
+If you pin an old image tag, check that it answers before going further:
+
+```bash
+curl -su "$DATAIKU_API_KEY:" http://localhost:10000/public/api/admin/general-settings/ -o /dev/null -w '%{http_code}'; echo
+```
+
+`200` means the provider will work. `401` is a bad key.
 
 See [dev/README.md](../../../dev/README.md).
 

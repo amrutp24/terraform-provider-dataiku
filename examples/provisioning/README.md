@@ -10,7 +10,7 @@ root configuration you can `terraform apply` directly, not a module to wire up.
 | [`gcp/`](gcp) | Firewall rules and a Compute Engine instance | GCP project with billing |
 | [`azure/`](azure) | Resource group, network, NSG and a Linux VM | Azure subscription |
 
-The three cloud configurations call modules published separately —
+The three cloud configurations call modules published separately:
 [`amrutp24/dss/aws`](https://github.com/amrutp24/terraform-aws-dss),
 [`amrutp24/dss/google`](https://github.com/amrutp24/terraform-google-dss) and
 [`amrutp24/dss/azurerm`](https://github.com/amrutp24/terraform-azurerm-dss).
@@ -27,8 +27,8 @@ plan that uses it. An instance cannot be created and configured in the same
 apply.
 
 So each configuration here does layer one only: it produces a running DSS.
-Configuring what is inside it — projects, groups, connections, code
-environments — is a second root configuration using the `dataiku` provider, with
+Configuring what is inside it (projects, groups, connections, code
+environments) is a second root configuration using the `dataiku` provider, with
 its own state. [`docker/`](docker) shows both halves together and explains the
 handover.
 
@@ -44,12 +44,12 @@ result to `/var/lib/dataiku-terraform-key.json`, mode 0600.
 
 Retrieving it is the one genuinely platform-specific step:
 
-- **A cloud secret manager** is cleanest — extend the script to push the key into
+- **A cloud secret manager** is cleanest. Extend the script to push the key into
   Secrets Manager, Secret Manager or Key Vault, then read it back with that
   provider's data source. Nothing sensitive passes through Terraform state.
 - **Over SSH**, with a `remote-exec` or an `external` data source.
 - **By hand, once**: set `create_api_key = false` and create a global API key
-  under Administration → Security after the instance is up.
+  under Administration, then Security, after the instance is up.
 
 ## Before you apply
 
@@ -63,8 +63,8 @@ answer on its port until that finishes. Watch progress in the cloud console's
 serial output, or `docker logs` for the local one.
 
 **Size for memory.** DSS drops into a low-memory mode below roughly 16 GB and
-says so in its logs. The defaults here — `m5.xlarge`, `n2-standard-4`,
-`Standard_D4s_v5` — are about the smallest that behave normally, and they cost
+says so in its logs. The defaults here (`m5.xlarge`, `n2-standard-4`,
+`Standard_D4s_v5`) are about the smallest that behave normally, and they cost
 real money while running. `terraform destroy` when you are done.
 
 **The data directory is on the boot disk.** That keeps these configurations
@@ -74,12 +74,19 @@ anything you care about, attach a separate persistent disk, mount it at
 
 ## Licences
 
-The provider talks to the DSS public REST API. Whether an instance serves it
-depends on version and licence, so check rather than assume: a stock DSS 15
-Community Edition answered it with no licence installed, while an older
-`dataiku/dss` container refused with `DSS API is not available with your Free
-Edition license`. Confirm with
-`curl -su "$DATAIKU_API_KEY:" "$DSS_URL/public/api/admin/general-settings/" -o /dev/null -w '%{http_code}'`,
-which should print `200`.
+None of these need a licence to try the provider. DSS 15 serves the public
+REST API with no licence installed, on a VM built by the cloud modules and in
+the `dataiku/dss` image alike, and projects, groups, users, connections and
+scenarios can all be created through it. What a licence changes is which
+features work once you are in: containerized execution and temporal scenario
+triggers both need one.
+
+If you pin an old image tag or run an older DSS, check first:
+
+```bash
+curl -su "$DATAIKU_API_KEY:" "$DSS_URL/public/api/admin/general-settings/" -o /dev/null -w '%{http_code}'; echo
+```
+
+`200` means the provider will work. `401` is a bad key.
 
 See [`dev/README.md`](../../dev/README.md).
