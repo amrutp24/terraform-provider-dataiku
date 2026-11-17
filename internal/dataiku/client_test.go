@@ -492,3 +492,78 @@ func TestContextCancellationStopsRetrying(t *testing.T) {
 		t.Errorf("took %s; cancellation was not honoured", elapsed)
 	}
 }
+
+// DSS answers a missing global API key with a 400, not a 404, and the three
+// verbs word it two ways. All of them have to read as "gone", and a 400 that
+// is about something else must not.
+func TestMissingGlobalAPIKeyIsNotFound(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		message string
+		want    bool
+	}{
+		{"get or put on a missing key", http.StatusBadRequest, "Key not found", true},
+		{"delete on a missing key", http.StatusBadRequest, "Key to delete not found", true},
+		{"a real bad request", http.StatusBadRequest, "'id' mismatch URI vs Body", false},
+		{"a refused conversion", http.StatusBadRequest, "Converting a global API key with groups into a global API key without groups is not allowed", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_ = json.NewEncoder(w).Encode(map[string]string{"message": tt.message})
+			}))
+
+			_, getErr := client.GetGlobalAPIKey(context.Background(), "abc")
+			deleteErr := client.DeleteGlobalAPIKey(context.Background(), "abc")
+			for verb, err := range map[string]error{"GET": getErr, "DELETE": deleteErr} {
+				if got := IsNotFound(err); got != tt.want {
+					t.Errorf("%s: IsNotFound = %v, want %v (%v)", verb, got, tt.want, err)
+				}
+				// The status is reported as DSS sent it, so the message a
+				// person reads stays true.
+				if StatusCode(err) != tt.status {
+					t.Errorf("%s: status = %d, want %d", verb, StatusCode(err), tt.status)
+				}
+			}
+		})
+	}
+}
+
+// A PUT replaces a key's definition, so an update has to send back everything
+// the read returned. The one field left out is the secret, which comes back
+// masked and which DSS ignores on a write anyway.
+func TestUpdateGlobalAPIKeySendsTheWholeDocumentWithoutTheMask(t *testing.T) {
+	var sent map[string]any
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "abc", "key": "******", "label": "before", "createdOn": 1794888140377,
+				"globalPermissions": map[string]any{"admin": false, "mayCreateProjects": true},
+			})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+	}))
+
+	err := client.UpdateGlobalAPIKey(context.Background(), "abc", func(doc map[string]any) {
+		doc["label"] = "after"
+	})
+	if err != nil {
+		t.Fatalf("UpdateGlobalAPIKey: %v", err)
+	}
+	if sent["label"] != "after" {
+		t.Errorf("label = %v, want after", sent["label"])
+	}
+	if _, ok := sent["key"]; ok {
+		t.Error("the masked key was sent back; it should be left out")
+	}
+	for _, field := range []string{"id", "createdOn", "globalPermissions"} {
+		if _, ok := sent[field]; !ok {
+			t.Errorf("%s was not sent back, and DSS keeps nothing that is not in the PUT", field)
+		}
+	}
+}

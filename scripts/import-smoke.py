@@ -36,6 +36,7 @@ PROJECT = "IMPORTSMOKE"
 GROUP = "smokegroup"
 USER = "smokeuser"
 CONN = "smokeconn"
+KEY_LABEL = "import-smoke-key"
 
 
 def api(method, path, body=None):
@@ -83,7 +84,18 @@ def licensed_profile():
     return profiles[0]
 
 
+def delete_smoke_keys(quiet=False):
+    """Keys have no name to delete by, so find them by label."""
+    st, keys = api("GET", "/admin/global-api-keys/")
+    for k in keys if isinstance(keys, list) else []:
+        if k.get("label") == KEY_LABEL:
+            st, _ = api("DELETE", "/admin/global-api-keys/" + k["id"])
+            if not quiet:
+                print("  cleanup api key %-24s http=%s" % (k["id"], st))
+
+
 def cleanup(quiet=False):
+    delete_smoke_keys(quiet)
     for path in ("/projects/%s/" % PROJECT, "/admin/users/" + USER,
                  "/admin/connections/" + CONN, "/admin/groups/" + GROUP):
         st, _ = api("DELETE", path)
@@ -130,6 +142,16 @@ def main():
             cleanup(quiet=True)
             raise SystemExit("could not create %s" % label)
 
+    # A global API key is imported by the id DSS gives it, which only the
+    # create response and the list know.
+    st, key = api("POST", "/admin/global-api-keys/", {
+        "label": KEY_LABEL, "description": "import smoke"})
+    print("  %-12s http=%s" % ("api key", st))
+    if st != 200 or not isinstance(key, dict) or not key.get("id"):
+        cleanup(quiet=True)
+        raise SystemExit("could not create the api key")
+    key_id = key["id"]
+
     # DSS attaches its own per-user group, which the configuration has to
     # name or the first plan would want to remove that membership. This is
     # documented behaviour, not drift, so the test adopts it.
@@ -140,7 +162,10 @@ def main():
     os.makedirs(WORK, exist_ok=True)
     with open(os.path.join(WORK, "dev.tfrc"), "w") as f:
         f.write('provider_installation {\n  dev_overrides {\n'
-                '    "amrutp24/dataiku" = "%s"\n  }\n  direct {}\n}\n' % REPO)
+                '    "amrutp24/dataiku" = "%s"\n  }\n  direct {}\n}\n'
+                # Forward slashes, because this is HCL and a Windows path's
+                # backslashes are read as escapes.
+                % REPO.replace("\\", "/"))
 
     with open(os.path.join(WORK, "main.tf"), "w") as f:
         f.write('''terraform {
@@ -182,7 +207,13 @@ resource "dataiku_connection" "smoke" {
   type      = "Filesystem"
   usable_by = "ALL"
 }
+
+resource "dataiku_global_api_key" "smoke" {
+  label       = %(key_label)s
+  description = "import smoke"
+}
 ''' % {
+            "key_label": json.dumps(KEY_LABEL),
             "project": json.dumps(PROJECT),
             "group": json.dumps(GROUP),
             "user": json.dumps(USER),
@@ -203,6 +234,7 @@ resource "dataiku_connection" "smoke" {
         ("dataiku_group.smoke", GROUP),
         ("dataiku_user.smoke", USER),
         ("dataiku_connection.smoke", CONN),
+        ("dataiku_global_api_key.smoke", key_id),
     ]
     failed = []
     for addr, ident in imports:

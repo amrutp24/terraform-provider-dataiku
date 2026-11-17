@@ -19,6 +19,10 @@ type APIError struct {
 	Message string
 	// Detail carries the DSS "detailedMessage"/"detailedMessageHTML" field.
 	Detail string
+	// notFound marks a response that means "no such object" although DSS did
+	// not answer 404. Global API keys do this: a missing key is a 400. The
+	// status is left as DSS sent it, so the message stays true.
+	notFound bool
 }
 
 func (e *APIError) Error() string {
@@ -33,12 +37,13 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
-// IsNotFound reports whether err is a 404 from DSS. Resource Read methods use
+// IsNotFound reports whether err means the object does not exist: a 404, or
+// one of the responses DSS uses in place of one. Resource Read methods use
 // this to remove an object from state instead of failing the run.
 func IsNotFound(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == http.StatusNotFound
+		return apiErr.StatusCode == http.StatusNotFound || apiErr.notFound
 	}
 	return false
 }
