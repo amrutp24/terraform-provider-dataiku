@@ -29,6 +29,12 @@ type fakeDSS struct {
 	scenarios   map[string]map[string]any
 	payloads    map[string]string
 
+	// apiKeys holds global API key definitions by id, and apiKeySecrets the
+	// secret of each. They are kept apart because DSS keeps them apart: the
+	// secret is given out once and is in no document a read returns.
+	apiKeys       map[string]map[string]any
+	apiKeySecrets map[string]string
+
 	// unmodelledFieldDropped records whether an update ever wrote back a
 	// document that lost a field the provider does not model.
 	unmodelledFieldDropped bool
@@ -123,6 +129,9 @@ func newFakeDSS(t *testing.T) (*fakeDSS, string) {
 		scenarios:   map[string]map[string]any{},
 		payloads:    map[string]string{},
 
+		apiKeys:       map[string]map[string]any{},
+		apiKeySecrets: map[string]string{},
+
 		installedInterpreters: map[string]bool{
 			"PYTHON39": true, "PYTHON311": true, "PYTHON312": true,
 		},
@@ -162,6 +171,7 @@ func (f *fakeDSS) handler() http.Handler {
 	mux.HandleFunc("/public/api/admin/code-envs/", f.handleCodeEnvs)
 	mux.HandleFunc("/public/api/admin/general-settings/", f.handleGeneralSettings)
 	mux.HandleFunc("/public/api/admin/licensing/status", f.handleLicensingStatus)
+	mux.HandleFunc("/public/api/admin/global-api-keys/", f.handleGlobalAPIKeys)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "unhandled "+r.Method+" "+r.URL.Path)
 	})
@@ -195,6 +205,15 @@ func (f *fakeDSS) handleAuthInfo(w http.ResponseWriter, r *http.Request) {
 	// password, so reject anything else to keep the provider honest.
 	user, pass, ok := r.BasicAuth()
 	if !ok || user == "" || pass != "" {
+		writeErr(w, http.StatusUnauthorized, "bad credentials")
+		return
+	}
+	// And the key has to be one that exists, so a test can tell a key that
+	// works from one that was deleted.
+	f.mu.Lock()
+	known := f.authenticates(user)
+	f.mu.Unlock()
+	if !known {
 		writeErr(w, http.StatusUnauthorized, "bad credentials")
 		return
 	}
