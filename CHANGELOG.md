@@ -4,6 +4,45 @@ All notable changes to this provider are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-11-16
+
+### Fixed
+
+- 0.8.0 refused any `user_profile` the instance does not licence, and that
+  was too wide. An instance that has a licence maps a profile it does not
+  licence onto its fallback profile and carries on. On DSS 15 with a Free
+  Edition licence, a user created with `DATA_SCIENTIST` resolves to
+  `DESIGNER` and the instance stays healthy, yet 0.8.0 refused that
+  configuration while planning.
+
+  The refusal now applies only to an instance with no licence, which reports
+  no fallback profile. That is the case it was written for: the write is
+  accepted, the profile is stored unresolved, and every later project create,
+  user edit and user delete fails for good. If 0.8.0 rejected a profile on a
+  licensed instance, upgrade and plan again.
+
+### Added
+
+- `scripts/import-smoke.py`, which creates objects on a live instance,
+  imports each with the `terraform import` command and fails unless the plan
+  afterwards is empty. The acceptance suite's import steps run in process and
+  never plan afterwards, which is how the dirty project import fixed in 0.8.0
+  got through a green suite.
+
+### Notes
+
+- Creating a user through the public API makes DSS create a group of its own,
+  named `<login>-<creator>-<random>`, with admin rights, and DSS leaves it
+  behind when the user is deleted. The provider does not delete it, because
+  it never declared it and a provider that removes undeclared objects cannot
+  be trusted on a shared instance. The acceptance suite now sweeps the ones
+  it causes. If you create and destroy users often, expect to find these
+  under Administration, Security, Groups.
+- The example READMEs under `examples/provisioning` no longer suggest that a
+  Free Edition container may refuse the public API. The current `dataiku/dss`
+  image serves it with no licence installed, and that is the cheapest way to
+  try this provider.
+
 ## [0.8.0] - 2026-11-06
 
 ### Changed

@@ -16,7 +16,7 @@ Terraform Registry derives a module's address from its repository name. Their
 tests live with them.
 
 `docs/` is generated. Edit the schema descriptions and the files under
-`examples/`, then run `make docs` — CI fails if the committed output is stale.
+`examples/`, then run `make docs`. CI fails if the committed output is stale.
 
 ## Testing
 
@@ -46,7 +46,7 @@ do not suit yours.
 ## Adding a resource
 
 1. Add the API calls to `internal/dataiku`. Updates should read the current
-   document, change only the managed fields, and write it back — DSS replaces
+   document, change only the managed fields, and write it back. DSS replaces
    documents wholesale on `PUT`, and this is what stops an apply from wiping
    settings the provider does not model.
 2. Add the resource to `internal/provider` and register it in `provider.go`.
@@ -60,9 +60,9 @@ reliable for the *shape* of what those paths accept.
 
 Two patterns worth following, both learned the hard way:
 
-- Where DSS owns part of a value — the group it attaches to every new user, say
-  — model the attribute as the subset Terraform manages rather than as the whole
-  truth, or apply will fail with an unexpected new value.
+- Where DSS owns part of a value, such as the group it attaches to every new
+  user, model the attribute as the subset Terraform manages rather than as the
+  whole truth, or apply will fail with an unexpected new value.
 - Do not expose reverse references on a resource. A folder's contents are read
   before the projects that populate them exist; those belong on a data source.
 

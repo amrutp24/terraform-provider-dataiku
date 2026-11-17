@@ -2,7 +2,7 @@
 
 One module lives here. The ones that stand up an instance live in their own
 repositories, because the Terraform Registry derives a module's address from its
-repository name — `terraform-<PROVIDER>-<NAME>` — and this repository is a
+repository name, `terraform-<PROVIDER>-<NAME>`, and this repository is a
 provider.
 
 ## In this repository
@@ -18,7 +18,7 @@ provider.
 | `amrutp24/dss/aws` | [terraform-aws-dss](https://github.com/amrutp24/terraform-aws-dss) | Security group, EC2 instance |
 | `amrutp24/dss/google` | [terraform-google-dss](https://github.com/amrutp24/terraform-google-dss) | Firewall rules, Compute Engine instance |
 | `amrutp24/dss/azurerm` | [terraform-azurerm-dss](https://github.com/amrutp24/terraform-azurerm-dss) | Resource group, network, NSG, Linux VM |
-| `amrutp24/dss-bootstrap/null` | [terraform-null-dss-bootstrap](https://github.com/amrutp24/terraform-null-dss-bootstrap) | Nothing — renders the install script the three share |
+| `amrutp24/dss-bootstrap/null` | [terraform-null-dss-bootstrap](https://github.com/amrutp24/terraform-null-dss-bootstrap) | Nothing. It renders the install script the three share |
 
 They used to be copied in here as well. Two copies of a module are two things to
 keep correct, and the second one is always the one nobody remembers to change.
@@ -34,7 +34,7 @@ No amount of module structure removes this. Modules make the halves reusable;
 they do not make them simultaneous.
 
 In practice that means two root configurations with separate state. Layer two
-reads layer one's outputs — through a remote state data source, a variable, or
+reads layer one's outputs through a remote state data source, a variable, or
 whatever your setup prefers:
 
 ```hcl
@@ -67,7 +67,7 @@ Layer two needs an API key, and a fresh instance has no way to produce one
 without a browser. The bootstrap runs `dsscli api-key-create` and writes the
 result to `/var/lib/dataiku-terraform-key.json`, mode 0600.
 
-Moving it from there is the one genuinely platform-specific step — a cloud
+Moving it from there is the one genuinely platform-specific step. A cloud
 secret manager is cleanest, since nothing sensitive passes through Terraform
 state. Each cloud module's README covers the options for its platform.
 
