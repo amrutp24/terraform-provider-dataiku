@@ -231,6 +231,7 @@ func (p *dataikuProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewContainerImageBuildConfigResource,
 		NewContainerExecutionConfigResource,
 		NewContainerSettingsResource,
+		NewGlobalAPIKeyResource,
 	}
 }
 

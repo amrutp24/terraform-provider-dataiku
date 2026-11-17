@@ -4,6 +4,39 @@ All notable changes to this provider are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `dataiku_global_api_key`, for the keys under Administration, Security,
+  Global API keys. Until now the only way to make one was by hand or with
+  `dsscli`, which is how the provider's own first key still has to be made.
+  Every key after that can be code.
+
+  DSS returns a key's secret once, from the create call, and masks it on
+  every read after. The resource keeps it in the sensitive `key` attribute,
+  so the secret is in state. An imported key has none.
+
+  A key carries its own rights through `admin` and `permissions`, or takes
+  them from `groups`. Adding `groups` to a key is an edit that keeps the
+  secret. Removing them forces a new key, because DSS refuses that
+  conversion.
+
+  Worth knowing before handing one out: a new key is not empty. DSS 15 turns
+  on `mayCreateProjects` and five other abilities by default. Set them to
+  `false` in `permissions` for a key that should not have them.
+
+### Notes
+
+- The behaviour above was measured on DSS 15 before anything was written, and
+  little of it is what the endpoint's shape suggests. A missing key answers
+  400 rather than 404. A PUT replaces the whole definition, so sending only
+  what changed resets every ability and clears the rest. An ability name DSS
+  does not know is dropped with a 200, which the resource turns into an error
+  that names it. The create response reports no expiry date whatever lifetime
+  was asked for, and a read has the real one. The test fake does all of
+  these.
+
 ## [0.8.1] - 2026-11-16
 
 ### Fixed

@@ -35,3 +35,6 @@ examples/**/.terraform/
 examples/**/.terraform.lock.hcl
 modules/**/.terraform/
 modules/**/.terraform.lock.hcl
+
+# Working directory of scripts/import-smoke.py
+/scripts/smoke/

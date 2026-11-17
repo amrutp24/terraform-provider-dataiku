@@ -33,6 +33,7 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 | `dataiku_container_image_build_config` | |
 | `dataiku_container_execution_config` | |
 | `dataiku_container_settings` | |
+| `dataiku_global_api_key` | |
 
 ## Try it without a Dataiku instance
 
@@ -111,6 +112,7 @@ your own instance when `DATAIKU_HOST` and `DATAIKU_API_KEY` are set, through
 | `dataiku_code_env` | Full lifecycle, including a real package install. |
 | `dataiku_scenario` | Custom Python scenarios, yes. Temporal triggers need a licence that covers them and were not exercised. |
 | `dataiku_container_image_build_config`, `_execution_config`, `dataiku_container_settings` | The writes and read-backs, yes. The execution they configure is licence-gated, and was run end to end once, on a licensed GCP instance: cluster and registry through a base image build to a recipe pod reaching `DONE`. |
+| `dataiku_global_api_key` | Full lifecycle on DSS 15 in Docker, including import, and each created key was used to authenticate. |
 | All six data sources | Yes. |
 
 The most recent full run was against DSS 15.0.0 in Docker with no licence
