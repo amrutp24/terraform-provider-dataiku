@@ -9,6 +9,17 @@ setup.
 
 ## Start it
 
+The short way is one script, which starts the instance, waits for it, makes an
+API key and applies a small example:
+
+```bash
+dev/quickstart.sh
+```
+
+`dev\quickstart.ps1` is the same thing for Windows PowerShell. Pass
+`--no-apply` (`-NoApply`) to stop once there is an instance and a key. The
+rest of this page is those steps done by hand.
+
 ```bash
 docker compose -f dev/docker-compose.yml up -d
 ```
@@ -32,12 +43,12 @@ are real observations from this project:
   Enterprise trial (`community: true`, `wasCEEntrepriseTrial: false`), served
   the API fine. Projects, groups, users, connections and scenarios were all
   created through it.
-- The **`dataiku/dss:latest`** image this compose file pulls, which is DSS
-  15.0.0 and carries no licence, serves the API. Checked on 2026-10-16: 26 of
-  the 27 acceptance tests that run against a live instance passed against it.
-  The one that did not is scenario temporal triggers, rejected with
-  `Triggers of type temporal are not available in your license`, so a
-  `dataiku_scenario` with a `temporal` trigger needs a licensed instance.
+- The **`dataiku/dss`** image this compose file pulls carries no licence and
+  serves the API. Checked on 2026-11-21 against 15.2.0, which is what `latest`
+  is today, and against 15.0.0: the acceptance suite passed on both, 37 tests
+  and none failing. The scenario cases a licence gates are skipped there:
+  temporal triggers, rejected with `Triggers of type temporal are not
+  available in your license`, and custom Python scenarios.
 - An **older `dataiku/dss` container** refused outright, and the API key screen
   reported:
 
@@ -104,11 +115,24 @@ actually has; they default to `DESIGNER` and `NONE`.
 
 ## Get an API key
 
-With a licence that includes the API, as the `admin` user:
+Without opening the UI, which is what the quickstart script does:
+
+```bash
+docker exec dataiku-dss-dev bash -lc 'dss/bin/dsscli api-key-create --admin true --label terraform --output json'
+```
+
+The path is relative on purpose. Git Bash on Windows rewrites an argument that
+starts with a slash into a Windows path, so the absolute form fails there with
+`C:/Program Files/...: No such file or directory`.
+
+Or in the UI, as the `admin` user:
 
 **Administration > Security > Global API keys > New API key**
 
 Give it admin rights, then copy the secret. DSS shows it once.
+
+Once the provider has one key, the rest can be Terraform: see
+`dataiku_global_api_key`.
 
 A **personal** API key works too and is created by any user under **Profile &
 settings > API keys**. A personal key carries exactly that user's rights, so it
