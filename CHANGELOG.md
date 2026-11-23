@@ -4,7 +4,7 @@ All notable changes to this provider are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-11-22
 
 ### Added
 
@@ -37,14 +37,17 @@ All notable changes to this provider are documented here. The format follows
 
 ### Notes
 
-- The behaviour above was measured on DSS 15 before anything was written, and
-  little of it is what the endpoint's shape suggests. A missing key answers
-  400 rather than 404. A PUT replaces the whole definition, so sending only
-  what changed resets every ability and clears the rest. An ability name DSS
-  does not know is dropped with a 200, which the resource turns into an error
-  that names it. The create response reports no expiry date whatever lifetime
-  was asked for, and a read has the real one. The test fake does all of
-  these.
+- The acceptance suite passes against DSS 15.2.0, which is what
+  `dataiku/dss:latest` pulls today, and against 15.0.0, both in Docker with
+  no licence installed. Nothing older than DSS 15 has been tried.
+- How DSS treats API keys was measured on DSS 15 before the resource was
+  written, and little of it is what the endpoint's shape suggests. A missing
+  key answers 400 rather than 404. A PUT replaces the whole definition, so
+  sending only what changed resets every ability and clears the rest. An
+  ability name DSS does not know is dropped with a 200, which the resource
+  turns into an error that names it. The create response reports no expiry
+  date whatever lifetime was asked for, and a read has the real one. The
+  test fake does all of these.
 
 ## [0.8.1] - 2026-11-16
 
