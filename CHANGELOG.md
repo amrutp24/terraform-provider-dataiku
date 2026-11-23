@@ -26,6 +26,15 @@ All notable changes to this provider are documented here. The format follows
   on `mayCreateProjects` and five other abilities by default. Set them to
   `false` in `permissions` for a key that should not have them.
 
+- `dev/quickstart.sh`, and `dev/quickstart.ps1` for Windows PowerShell. One
+  command starts a disposable DSS in Docker, waits for it, makes an API key
+  and applies the new `examples/quickstart`, so the first thing you see is a
+  project Terraform made. Until now that was five steps and a key copied by
+  hand. `--no-apply` stops once there is an instance and a key.
+
+  `dev/docker-compose.yml` takes `DSS_PORT` and `DSS_CONTAINER_NAME`, for when
+  port 10000 is taken.
+
 ### Notes
 
 - The behaviour above was measured on DSS 15 before anything was written, and

@@ -38,3 +38,7 @@ modules/**/.terraform.lock.hcl
 
 # Working directory of scripts/import-smoke.py
 /scripts/smoke/
+
+# Written by dev/quickstart.sh and quickstart.ps1. They hold an API key.
+/dev/.quickstart.env
+/dev/.quickstart.env.ps1

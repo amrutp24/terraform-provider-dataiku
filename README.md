@@ -37,40 +37,66 @@ through the [DSS public REST API](https://doc.dataiku.com/dss/latest/publicapi/r
 
 ## Try it without a Dataiku instance
 
-`dev/` brings up a disposable DSS in Docker, so nothing you care about is
-involved:
+With Docker and Terraform installed, one command takes you from nothing to a
+DSS with a Terraform-made project in it:
 
 ```bash
-docker compose -f dev/docker-compose.yml up -d
+git clone https://github.com/amrutp24/terraform-provider-dataiku
 ```
-
-The first start takes a few minutes while DSS initialises. Then mint an admin
-key without opening the UI:
 
 ```bash
-docker exec dataiku-dss-dev bash -lc \
-  'dss/bin/dsscli api-key-create --admin true --label terraform --output json'
+cd terraform-provider-dataiku
 ```
-
-The path is relative on purpose. Git Bash on Windows rewrites a
-leading-slash argument into a Windows path, so the absolute form fails
-there with `C:/Program Files/...: No such file or directory`.
-
-Point the provider at it and apply anything from [`examples/`](examples):
 
 ```bash
-export DATAIKU_HOST=http://localhost:10000
-export DATAIKU_API_KEY=dkuaps-...
+dev/quickstart.sh
 ```
 
-Throw it away afterwards with `docker compose -f dev/docker-compose.yml down -v`.
+On Windows without bash, run `dev\quickstart.ps1` instead. It does the same
+thing.
 
-Verified on 2026-10-16 against `dataiku/dss:latest`, which is DSS 15.0.0 with
-no licence installed: the public API answers, and 26 of the 27 acceptance tests
-that run against a live instance pass against it. The one that fails is
-scenario temporal triggers, rejected with "Triggers of type temporal are not
-available in your license", so a `dataiku_scenario` with a `temporal` trigger
-needs a licensed instance.
+The script starts a disposable DSS in Docker, waits for it, makes an admin API
+key and applies [`examples/quickstart`](examples/quickstart): a group, a
+project the group can work in, and a project variable. The first run takes
+a few minutes: the image is about 4 GB to download, and DSS then takes a
+minute or two to initialise. When it finishes:
+
+- DSS is at <http://localhost:10000>. Sign in as `admin` / `admin`. The first
+  time, DSS asks you to register for the Free Edition or enter a licence.
+  Nothing here needs either.
+- The project is at <http://localhost:10000/projects/QUICKSTART/>.
+- The key is in `dev/.quickstart.env`, which git ignores.
+
+From there, change `examples/quickstart/main.tf` and apply again, or point the
+provider at the instance from your own configuration:
+
+```bash
+source dev/.quickstart.env
+```
+
+```bash
+terraform -chdir=examples/quickstart plan
+```
+
+`dev/quickstart.sh --no-apply` stops after the key, if all you want is an
+instance to write your own configuration against. The script is safe to run
+again: it reuses the instance and the key. If port 10000 is taken, set
+`DSS_PORT`.
+
+Throw it all away, data included, with
+`docker compose -f dev/docker-compose.yml down -v`.
+
+[dev/README.md](dev/README.md) has the same steps done by hand, for when you
+want to see each one.
+
+Verified on 2026-11-21 against instances this script had just started, with no
+licence installed: DSS 15.2.0, which is what `dataiku/dss:latest` pulls today,
+and DSS 15.0.0. On both the public API answers and the acceptance suite
+passes, 37 tests and none failing. Two things are skipped there because the
+licence does not cover them. Scenario temporal triggers are rejected with
+"Triggers of type temporal are not available in your license", and custom
+Python scenarios need a licence with advanced scenario steps. A
+`dataiku_scenario` using either needs a licensed instance.
 
 Writing a setting is not the same as the feature working, and two resources sit
 on the wrong side of that line here. The container resources pass on this image
@@ -115,9 +141,11 @@ your own instance when `DATAIKU_HOST` and `DATAIKU_API_KEY` are set, through
 | `dataiku_global_api_key` | Full lifecycle on DSS 15 in Docker, including import, and each created key was used to authenticate. |
 | All six data sources | Yes. |
 
-The most recent full run was against DSS 15.0.0 in Docker with no licence
-installed, where 26 of the 27 live cases passed. The exception was the
-scenario temporal trigger above.
+The most recent full runs were on 2026-11-21 against DSS 15.2.0 and DSS 15.0.0
+in Docker with no licence installed: 37 passed and none failed on each. What
+was skipped is the licence-gated scenario cases above, the connection test
+that wants a database, and the cases that only make sense against the fake.
+Nothing older than DSS 15 has been tried.
 
 ## Usage
 
