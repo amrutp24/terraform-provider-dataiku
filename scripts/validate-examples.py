@@ -19,8 +19,19 @@ Two kinds of example live under examples/:
   name in the snippet under test, which is the part that goes wrong, without
   needing the neighbouring examples present.
 
-Run with the provider under test already installed, or let terraform init
-fetch the published one.
+Pass --build to validate against this checkout's provider, which is what CI
+does. The provider is built into a filesystem mirror and Terraform is told to
+install it from there and from nowhere else, so an example that uses an
+argument added since the last release passes, one that uses an argument this
+checkout removed fails, and nothing is downloaded from the registry.
+
+That last part is not a detail. CI used to point Terraform at the build with
+dev_overrides, and terraform init downloads an overridden provider from the
+registry anyway. Every example is initialised on its own, so each CI run
+downloaded the published provider about two dozen times, and the registry
+counted each one.
+
+Without --build, terraform init fetches the published provider as usual.
 """
 import argparse
 import json
@@ -39,6 +50,20 @@ DECL = re.compile(r'^(resource|data)\s+"([a-z0-9_]+)"\s+"([a-z0-9_]+)"', re.M)
 REF = re.compile(r'\b(data\.)?(dataiku_[a-z0-9_]+)\.([a-z0-9_]+)\.([a-z0-9_]+)\b')
 VAR_DECL = re.compile(r'^variable\s+"([a-z0-9_]+)"', re.M)
 VAR_REF = re.compile(r'\bvar\.([a-z0-9_]+)\b')
+
+PROVIDER = "registry.terraform.io/amrutp24/dataiku"
+# The version the local build is filed under in the mirror. No release will
+# ever have it, so finding it in init's output proves where the provider came
+# from, and it satisfies any "~> 0.x" constraint an example can write. When
+# the provider reaches 1.0 the examples will pin "~> 1.0", this will stop
+# matching, and every example will fail until it is raised.
+BUILD_VERSION = "0.99.0"
+INSTALLED = re.compile(r"Install(?:ing|ed) amrutp24/dataiku v(\d+\.\d+\.\d+)")
+
+# Set by --build: the environment terraform runs in, and the version it must
+# install.
+TF_ENV = None
+EXPECT_VERSION = None
 
 
 def provider_block(version_constraint):
@@ -100,14 +125,62 @@ def declare_variables(text):
 
 
 def run(cmd, cwd):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, shell=False)
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, shell=False, env=TF_ENV)
+
+
+def build_mirror(work):
+    """Build this checkout's provider into a filesystem mirror.
+
+    Returns the environment that makes terraform install the provider from
+    the mirror only. The exclude on the direct method is what keeps init away
+    from the registry: without it Terraform asks both and takes the newest.
+    """
+    def go_env(name):
+        return subprocess.run(["go", "env", name], cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
+
+    goos, goarch = go_env("GOOS"), go_env("GOARCH")
+    mirror = os.path.join(work, "mirror")
+    target = os.path.join(mirror, *PROVIDER.split("/"), BUILD_VERSION, f"{goos}_{goarch}")
+    os.makedirs(target)
+    binary = os.path.join(target, f"terraform-provider-dataiku_v{BUILD_VERSION}" + (".exe" if goos == "windows" else ""))
+    subprocess.run(["go", "build", "-o", binary, "."], cwd=REPO, check=True)
+
+    config = os.path.join(work, "terraform.rc")
+    with open(config, "w", encoding="utf-8", newline="\n") as fh:
+        # Forward slashes: this is HCL, and a Windows path's backslashes
+        # would be read as escapes.
+        fh.write(
+            "provider_installation {\n"
+            "  filesystem_mirror {\n"
+            '    path    = "%s"\n'
+            '    include = ["%s"]\n'
+            "  }\n"
+            "  direct {\n"
+            '    exclude = ["%s"]\n'
+            "  }\n"
+            "}\n" % (mirror.replace(os.sep, "/"), PROVIDER, PROVIDER)
+        )
+
+    env = dict(os.environ)
+    env["TF_CLI_CONFIG_FILE"] = config
+    return env
 
 
 def validate_dir(path, label, failures, tf):
-    init = run([tf, "init", "-backend=false", "-no-color", "-input=false"], path)
+    # -upgrade so a lock file left in an example directory by an earlier run
+    # cannot pin a version the mirror does not hold.
+    init = run([tf, "init", "-upgrade", "-backend=false", "-no-color", "-input=false"], path)
     if init.returncode != 0:
         failures.append((label, "init", init.stdout + init.stderr))
+        print(f"  FAIL  {label}")
         return
+    if EXPECT_VERSION:
+        strays = sorted(set(INSTALLED.findall(init.stdout)) - {EXPECT_VERSION})
+        if strays:
+            failures.append((label, "init", "installed amrutp24/dataiku %s, which is not this checkout's build (%s). "
+                             "It came from the registry." % (", ".join(strays), EXPECT_VERSION)))
+            print(f"  FAIL  {label}")
+            return
     val = run([tf, "validate", "-no-color"], path)
     if val.returncode != 0:
         failures.append((label, "validate", val.stdout + val.stderr))
@@ -120,11 +193,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", default="", help='version constraint for generated provider blocks, e.g. "~> 0.6"')
     ap.add_argument("--terraform", default="terraform")
+    ap.add_argument("--build", action="store_true",
+                    help="build this checkout's provider and validate against it, without touching the registry")
     args = ap.parse_args()
 
     tf = shutil.which(args.terraform) or args.terraform
     failures = []
     work = tempfile.mkdtemp(prefix="validate-examples-")
+
+    if args.build:
+        global TF_ENV, EXPECT_VERSION
+        TF_ENV = build_mirror(work)
+        EXPECT_VERSION = BUILD_VERSION
+        print(f"validating against this checkout's provider, filed as {BUILD_VERSION}\n")
 
     roots, fragments = [], []
     for dirpath, dirs, files in os.walk(EXAMPLES):
