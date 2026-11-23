@@ -73,7 +73,11 @@ if (Test-Path $envFile) {
 if (-not $key) {
     Write-Host 'Creating an admin API key'
     foreach ($attempt in 1..6) {
-        $out = docker exec $container bash -lc 'dss/bin/dsscli api-key-create --admin true --label terraform-quickstart --output json' 2>$null
+        # dsscli logs to stderr, and the redirect has to happen inside the
+        # container. Redirecting a native command's stderr in Windows
+        # PowerShell turns each line into an error record, which stops the
+        # script under ErrorActionPreference = Stop.
+        $out = docker exec $container bash -lc 'dss/bin/dsscli api-key-create --admin true --label terraform-quickstart --output json 2>/dev/null'
         $match = [regex]::Match(($out -join "`n"), 'dkuaps-[A-Za-z0-9]+')
         if ($match.Success) { $key = $match.Value; break }
         Start-Sleep -Seconds 5
