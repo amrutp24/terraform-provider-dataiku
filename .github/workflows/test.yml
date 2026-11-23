@@ -87,7 +87,7 @@ jobs:
       # fail. It installs that build from a local mirror and keeps init away
       # from the registry. The dev_overrides this job used before did not:
       # init downloaded the published provider once per example, on every run,
-      # and that was most of what the registry's download count was counting.
+      # and the registry counted each one as a download.
       - name: Validate every example
         run: python3 scripts/validate-examples.py --build
         timeout-minutes: 10

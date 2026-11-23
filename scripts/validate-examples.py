@@ -28,8 +28,8 @@ checkout removed fails, and nothing is downloaded from the registry.
 That last part is not a detail. CI used to point Terraform at the build with
 dev_overrides, and terraform init downloads an overridden provider from the
 registry anyway. Every example is initialised on its own, so each CI run
-downloaded the published provider about two dozen times and the registry's
-download count measured this script.
+downloaded the published provider about two dozen times, and the registry
+counted each one.
 
 Without --build, terraform init fetches the published provider as usual.
 """
