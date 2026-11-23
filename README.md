@@ -115,6 +115,10 @@ what an instance already has, run `plan`, and read what comes back before you
 let Terraform change anything. An import creates and destroys nothing, and
 each resource's page gives its import id.
 
+[Adopting an existing instance](docs/guides/adopting-an-existing-instance.md)
+walks through it with `import` blocks and generated configuration, and lists
+what an import cannot recover.
+
 Two resources need a word of warning before you import them.
 `dataiku_container_image_build_config` and `dataiku_container_execution_config`
 seed `settings_json` empty, because the instance holds your settings merged
