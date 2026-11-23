@@ -80,5 +80,6 @@ Changes collect under `## [Unreleased]` in `CHANGELOG.md`. To release:
 2. Tag the merge commit `v0.9.0` and push the tag.
 
 The release workflow takes the notes for the GitHub release from that section,
-with `scripts/release-notes.py`. A tag whose version has no section fails
-before anything is built, so step 1 cannot be skipped by accident.
+with `scripts/release-notes.py`, and sets them on the release once goreleaser
+has published it. A tag whose version has no section fails before anything is
+built, so step 1 cannot be skipped by accident.

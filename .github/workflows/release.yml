@@ -24,7 +24,7 @@ jobs:
       # The changelog is the release notes. This runs before anything is built
       # or signed, so a tag with no changelog section fails here rather than
       # publishing a release with an empty page, which is what every release
-      # up to 0.8.1 did.
+      # up to 0.8.1 did. The last step puts the text on the release.
       - name: Take the release notes from the changelog
         run: python3 scripts/release-notes.py "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -40,8 +40,16 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
-          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
+          args: release --clean
         env:
           # GitHub sets the GITHUB_TOKEN secret automatically.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+      # Set on the release after goreleaser has made it. Passing the file to
+      # goreleaser with --release-notes does nothing while its changelog is
+      # disabled in .goreleaser.yml: 0.9.0 was built that way and its page
+      # came out empty.
+      - name: Put the release notes on the release
+        run: gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
