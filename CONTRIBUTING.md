@@ -70,3 +70,15 @@ Two patterns worth following, both learned the hard way:
 
 Explain why the change is needed, not just what it does. If it fixes something
 subtle, say what the symptom was.
+
+## Releasing
+
+Changes collect under `## [Unreleased]` in `CHANGELOG.md`. To release:
+
+1. Rename that heading to the version and today's date, for example
+   `## [0.9.0] - 2026-11-21`, and merge it.
+2. Tag the merge commit `v0.9.0` and push the tag.
+
+The release workflow takes the notes for the GitHub release from that section,
+with `scripts/release-notes.py`. A tag whose version has no section fails
+before anything is built, so step 1 cannot be skipped by accident.
